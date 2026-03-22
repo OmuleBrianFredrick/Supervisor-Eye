@@ -1,0 +1,9 @@
+{
+  "name": "Supervisor Eye",
+  "description": "A hierarchical, evidence-based reporting and accountability platform for organizations.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone",
+    "geolocation"
+  ]
+}

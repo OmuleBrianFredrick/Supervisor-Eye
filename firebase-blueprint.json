@@ -1,0 +1,150 @@
+{
+  "entities": {
+    "organizations": {
+      "title": "Organization",
+      "description": "Represents a network or company.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Name of the organization" },
+        "code": { "type": "string", "description": "Unique join code" },
+        "adminId": { "type": "string", "description": "UID of the Org Admin" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "settings": { "type": "object", "description": "Org-specific settings (GPS, storage)" }
+      },
+      "required": ["name", "code", "adminId"]
+    },
+    "users": {
+      "title": "User",
+      "description": "System user with role and hierarchy links.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "role": { "type": "string", "enum": ["SUPER_ADMIN", "ORG_ADMIN", "EXECUTIVE", "HR", "IT_STAFF", "MANAGER", "SUPERVISOR", "WORKER"] },
+        "orgId": { "type": "string", "description": "Organization ID" },
+        "supervisorId": { "type": "string", "description": "Direct supervisor UID" },
+        "status": { "type": "string", "enum": ["active", "pending_approval", "inactive"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "role", "orgId"]
+    },
+    "reports": {
+      "title": "Report",
+      "description": "Structured evidence-based report.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "typeId": { "type": "string", "description": "Reference to reportTypes" },
+        "description": { "type": "string" },
+        "challenges": { "type": "string" },
+        "pendingTasks": { "type": "string" },
+        "authorId": { "type": "string" },
+        "orgId": { "type": "string" },
+        "status": { "type": "string", "enum": ["draft", "submitted", "approved", "rejected", "revision_requested"] },
+        "attachments": { "type": "array", "items": { "type": "object", "properties": { "url": { "type": "string" }, "name": { "type": "string" }, "type": { "type": "string" }, "hash": { "type": "string", "description": "SHA-256 integrity hash" } } } },
+        "location": { "type": "object" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "reviewedBy": { "type": "string" },
+        "reviewComment": { "type": "string" },
+        "aiSummary": { "type": "string", "description": "AI-generated summary for supervisors" },
+        "aiAnalysis": { "type": "object", "description": "AI-generated risk/anomaly analysis" }
+      },
+      "required": ["title", "authorId", "orgId", "status"]
+    },
+    "reportTypes": {
+      "title": "Report Type",
+      "description": "Configurable report categories with specific requirements.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "orgId": { "type": "string" },
+        "locationRequired": { "type": "boolean" },
+        "description": { "type": "string" }
+      },
+      "required": ["name", "orgId", "locationRequired"]
+    },
+    "tasks": {
+      "title": "Task",
+      "description": "Assigned task with tracking.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "assigneeId": { "type": "string" },
+        "creatorId": { "type": "string" },
+        "orgId": { "type": "string" },
+        "deadline": { "type": "string", "format": "date-time" },
+        "status": { "type": "string", "enum": ["pending", "in_progress", "submitted", "approved", "rejected", "overdue", "completed"] },
+        "priority": { "type": "string", "enum": ["low", "medium", "high", "urgent"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "assigneeId", "creatorId", "orgId", "status"]
+    },
+    "notifications": {
+      "title": "Notification",
+      "description": "System notification for users.",
+      "type": "object",
+      "properties": {
+        "recipientId": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "type": { "type": "string" },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["recipientId", "title", "message", "read"]
+    },
+    "auditLogs": {
+      "title": "Audit Log",
+      "description": "System-wide activity log.",
+      "type": "object",
+      "properties": {
+        "action": { "type": "string" },
+        "actorId": { "type": "string" },
+        "orgId": { "type": "string" },
+        "targetId": { "type": "string" },
+        "details": { "type": "object" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["action", "actorId", "timestamp"]
+    },
+    "comments": {
+      "title": "Comment",
+      "description": "Contextual discussion on reports or tasks.",
+      "type": "object",
+      "properties": {
+        "parentId": { "type": "string", "description": "ID of the report or task" },
+        "authorId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "text": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["parentId", "authorId", "text", "createdAt"]
+    },
+    "webhooks": {
+      "title": "Webhook",
+      "description": "External integration endpoint.",
+      "type": "object",
+      "properties": {
+        "orgId": { "type": "string" },
+        "url": { "type": "string" },
+        "events": { "type": "array", "items": { "type": "string" } },
+        "active": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["orgId", "url", "events", "active"]
+    }
+  },
+  "firestore": {
+    "/organizations/{orgId}": { "schema": "organizations", "description": "Org data" },
+    "/users/{userId}": { "schema": "users", "description": "User profiles" },
+    "/reports/{reportId}": { "schema": "reports", "description": "Work reports" },
+    "/reportTypes/{typeId}": { "schema": "reportTypes", "description": "Report configurations" },
+    "/tasks/{taskId}": { "schema": "tasks", "description": "Assigned tasks" },
+    "/notifications/{notifId}": { "schema": "notifications", "description": "User notifications" },
+    "/auditLogs/{logId}": { "schema": "auditLogs", "description": "System audit trail" },
+    "/comments/{commentId}": { "schema": "comments", "description": "Contextual discussion" },
+    "/webhooks/{webhookId}": { "schema": "webhooks", "description": "External integrations" }
+  }
+}
