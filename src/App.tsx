@@ -8,6 +8,7 @@ import Team from './pages/Team';
 import Analytics from './pages/Analytics';
 import Admin from './pages/Admin';
 import Settings from './pages/Settings';
+import AITools from './pages/AITools';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import ForgotPassword from './pages/ForgotPassword';
@@ -28,6 +29,7 @@ export default function App() {
           <Route path="/team" element={<Layout><Team /></Layout>} />
           <Route path="/analytics" element={<Layout><Analytics /></Layout>} />
           <Route path="/admin" element={<Layout><Admin /></Layout>} />
+          <Route path="/ai-tools" element={<Layout><AITools /></Layout>} />
           <Route path="/settings" element={<Layout><Settings /></Layout>} />
           
           <Route path="*" element={<Navigate to="/" replace />} />

@@ -4,6 +4,7 @@ export interface UserProfile {
   uid: string;
   email: string;
   displayName: string;
+  photoURL?: string;
   role: Role;
   orgId: string;
   supervisorId?: string;
@@ -110,6 +111,7 @@ export interface Notification {
   title: string;
   message: string;
   type: string;
+  relatedId?: string;
   read: boolean;
   createdAt: string;
 }
@@ -140,4 +142,14 @@ export interface Webhook {
   events: string[];
   active: boolean;
   createdAt: string;
+}
+
+export interface PublicContent {
+  id: string;
+  companyName: string;
+  description: string;
+  activities?: string[];
+  news?: { id: string; title: string; content: string; date: string }[];
+  gallery?: { id: string; url: string; caption: string }[];
+  updatedAt: string;
 }

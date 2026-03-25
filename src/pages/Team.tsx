@@ -273,7 +273,7 @@ export default function Team() {
       ) : (
         <div className="space-y-8">
           {/* Hierarchy Tree Visualization */}
-          <div className="bg-white dark:bg-slate-900 p-12 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-x-auto">
+          <div className="bg-white dark:bg-slate-900 p-4 sm:p-12 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-x-auto">
             <div className="space-y-12 min-w-max">
               {teamMembers.filter(m => !m.supervisorId || m.role === 'ORG_ADMIN').map(leader => (
                 <HierarchyNode key={leader.uid} member={leader} allMembers={teamMembers} />
@@ -329,21 +329,21 @@ export default function Team() {
 
       {/* Assign Supervisor Modal */}
       {isAssignModalOpen && selectedMember && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
-            <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-indigo-600 text-white">
-              <h2 className="text-xl font-bold">Assign Supervisor</h2>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center sm:p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white dark:bg-slate-900 w-full h-full sm:h-auto sm:max-w-md sm:rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200 flex flex-col">
+            <div className="p-4 sm:p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-indigo-600 text-white shrink-0">
+              <h2 className="text-lg sm:text-xl font-bold">Assign Supervisor</h2>
               <button onClick={() => setIsAssignModalOpen(false)} className="p-2 hover:bg-white/10 rounded-lg transition-colors">
                 <UserX className="w-6 h-6" />
               </button>
             </div>
             
-            <div className="p-6 space-y-6">
+            <div className="p-4 sm:p-6 space-y-6 overflow-y-auto flex-1">
               <div>
                 <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
                   Select a supervisor for <span className="font-bold text-slate-900 dark:text-white">{selectedMember.displayName}</span>.
                 </p>
-                <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2">
+                <div className="space-y-2 max-h-[300px] sm:max-h-[400px] overflow-y-auto pr-2">
                   {teamMembers
                     .filter(m => 
                       m.uid !== selectedMember.uid && 
@@ -377,7 +377,7 @@ export default function Team() {
                 </div>
               </div>
 
-              <div className="flex gap-4 pt-4">
+              <div className="flex flex-col sm:flex-row gap-4 pt-4 shrink-0">
                 <button 
                   onClick={() => {
                     handleAssignSupervisor(selectedMember, ""); // Clear supervisor

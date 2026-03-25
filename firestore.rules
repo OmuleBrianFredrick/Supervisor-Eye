@@ -23,6 +23,9 @@ service cloud.firestore {
     // Collection: comments
     // Fields: parentId (string), authorId (string), authorName (string), text (string), createdAt (timestamp)
     //
+    // Collection: reportTypes
+    // Fields: name (string), orgId (string), locationRequired (bool), description (string)
+    //
     // Collection: webhooks
     // Fields: orgId (string), url (string), events (list), active (bool), createdAt (timestamp)
     // ===============================================================
@@ -94,10 +97,10 @@ service cloud.firestore {
              data.settings is map;
     }
 
-    function isValidUser(data) {
-      return hasOnlyAllowedFields(['uid', 'email', 'displayName', 'role', 'orgId', 'supervisorId', 'status', 'createdAt']) &&
+    function isValidUser(data, userId) {
+      return hasOnlyAllowedFields(['uid', 'email', 'displayName', 'photoURL', 'role', 'orgId', 'supervisorId', 'status', 'createdAt']) &&
              hasRequiredFields(['uid', 'email', 'role', 'orgId']) &&
-             data.uid is string && data.uid == request.auth.uid &&
+             data.uid is string && data.uid == userId &&
              data.email is string && data.email.size() < 100 &&
              data.displayName is string && data.displayName.size() < 100 &&
              data.role in ['SUPER_ADMIN', 'ORG_ADMIN', 'EXECUTIVE', 'HR', 'IT_STAFF', 'MANAGER', 'SUPERVISOR', 'WORKER'] &&
@@ -106,7 +109,7 @@ service cloud.firestore {
     }
 
     function isValidReport(data) {
-      return hasOnlyAllowedFields(['title', 'description', 'challenges', 'pendingTasks', 'authorId', 'orgId', 'status', 'attachments', 'location', 'createdAt', 'reviewedBy', 'reviewComment', 'aiSummary', 'aiAnalysis', 'updatedAt']) &&
+      return hasOnlyAllowedFields(['title', 'typeId', 'description', 'challenges', 'pendingTasks', 'authorId', 'orgId', 'status', 'attachments', 'location', 'createdAt', 'reviewedBy', 'reviewComment', 'aiSummary', 'aiAnalysis', 'updatedAt', 'history', 'taskId']) &&
              hasRequiredFields(['title', 'authorId', 'orgId', 'status']) &&
              data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
              data.description is string && data.description.size() < 5000 &&
@@ -121,11 +124,11 @@ service cloud.firestore {
     }
 
     function isValidTask(data) {
-      return hasOnlyAllowedFields(['title', 'description', 'assigneeId', 'creatorId', 'orgId', 'deadline', 'status', 'priority', 'createdAt', 'updatedAt']) &&
-             hasRequiredFields(['title', 'assigneeId', 'creatorId', 'orgId', 'status']) &&
+      return hasOnlyAllowedFields(['title', 'description', 'assigneeIds', 'leadAssigneeId', 'creatorId', 'orgId', 'deadline', 'status', 'priority', 'checklist', 'attachments', 'createdAt', 'updatedAt']) &&
+             hasRequiredFields(['title', 'assigneeIds', 'creatorId', 'orgId', 'status']) &&
              data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
              data.description is string && data.description.size() < 2000 &&
-             data.assigneeId is string &&
+             data.assigneeIds is list &&
              data.creatorId is string &&
              data.orgId is string &&
              data.status in ['pending', 'in_progress', 'submitted', 'approved', 'rejected', 'overdue', 'completed'] &&
@@ -150,6 +153,25 @@ service cloud.firestore {
              data.active is bool;
     }
 
+    function isValidPublicContent(data) {
+      return hasOnlyAllowedFields(['companyName', 'description', 'activities', 'news', 'gallery', 'updatedAt']) &&
+             hasRequiredFields(['companyName', 'description']) &&
+             data.companyName is string && data.companyName.size() > 0 && data.companyName.size() < 200 &&
+             data.description is string && data.description.size() < 10000 &&
+             (!('activities' in data) || data.activities is list) &&
+             (!('news' in data) || data.news is list) &&
+             (!('gallery' in data) || data.gallery is list);
+    }
+
+    function isValidReportType(data) {
+      return hasOnlyAllowedFields(['name', 'orgId', 'locationRequired', 'description', 'createdAt']) &&
+             hasRequiredFields(['name', 'orgId', 'locationRequired']) &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.orgId is string &&
+             data.locationRequired is bool &&
+             (!('description' in data) || (data.description is string && data.description.size() < 1000));
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -168,7 +190,7 @@ service cloud.firestore {
         isAdmin() ||
         (isInSameOrg(resource.data.orgId) && hasRole(['MANAGER', 'SUPERVISOR', 'ORG_ADMIN', 'HR']))
       );
-      allow create: if isAuthenticated() && isValidUser(request.resource.data) && (
+      allow create: if isAuthenticated() && isValidUser(request.resource.data, userId) && (
         request.resource.data.role == 'WORKER' || 
         request.resource.data.role == 'ORG_ADMIN' || // Allow initial org setup
         isAdmin()
@@ -177,7 +199,7 @@ service cloud.firestore {
         (isOwner(userId) && request.resource.data.role == resource.data.role) || 
         isOrgAdmin(resource.data.orgId) || 
         isAdmin()
-      ) && isValidUser(request.resource.data);
+      ) && isValidUser(request.resource.data, userId);
     }
 
     // Reports
@@ -197,17 +219,25 @@ service cloud.firestore {
       ) && isValidReport(request.resource.data);
     }
 
+    // Report Types
+    match /reportTypes/{typeId} {
+      allow read: if isAuthenticated() && (isInSameOrg(resource.data.orgId) || isAdmin());
+      allow create: if isAuthenticated() && isOrgAdmin(request.resource.data.orgId) && isValidReportType(request.resource.data);
+      allow update: if isAuthenticated() && isOrgAdmin(resource.data.orgId) && isValidReportType(request.resource.data);
+      allow delete: if isAuthenticated() && isOrgAdmin(resource.data.orgId);
+    }
+
     // Tasks
     match /tasks/{taskId} {
       allow read: if isAuthenticated() && (
-        isOwner(resource.data.assigneeId) || 
+        request.auth.uid in resource.data.assigneeIds || 
         isOwner(resource.data.creatorId) ||
         isInSameOrg(resource.data.orgId)
       );
       allow create: if isAuthenticated() && hasRole(['SUPERVISOR', 'MANAGER', 'ORG_ADMIN', 'SUPER_ADMIN']) && 
                     isInSameOrg(request.resource.data.orgId) && isValidTask(request.resource.data);
       allow update: if isAuthenticated() && (
-        (isOwner(resource.data.assigneeId) && request.resource.data.creatorId == resource.data.creatorId) || 
+        (request.auth.uid in resource.data.assigneeIds && request.resource.data.creatorId == resource.data.creatorId) || 
         isOwner(resource.data.creatorId) ||
         isOrgAdmin(resource.data.orgId)
       ) && isValidTask(request.resource.data);
@@ -238,6 +268,12 @@ service cloud.firestore {
       allow create: if isOrgAdmin(request.resource.data.orgId) && isValidWebhook(request.resource.data);
       allow update: if isOrgAdmin(resource.data.orgId) && isValidWebhook(request.resource.data);
       allow delete: if isOrgAdmin(resource.data.orgId);
+    }
+
+    // Public Content
+    match /publicContent/{contentId} {
+      allow read: if true;
+      allow create, update: if isAdmin() && isValidPublicContent(request.resource.data);
     }
   }
 }

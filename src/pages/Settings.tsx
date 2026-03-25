@@ -15,15 +15,17 @@ import {
 } from 'lucide-react';
 import { auth } from '../firebase';
 import { updateProfile, signOut } from 'firebase/auth';
-import { getUserProfile, logAudit } from '../services/firebaseService';
+import { getUserProfile, logAudit, uploadFile, updateUserProfile } from '../services/firebaseService';
 import { UserProfile } from '../types';
 import { useNavigate } from 'react-router-dom';
 
 export default function Settings() {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [displayName, setDisplayName] = useState('');
+  const [photoURL, setPhotoURL] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -33,6 +35,7 @@ export default function Settings() {
         setUser(profile);
         if (profile) {
           setDisplayName(profile.displayName);
+          setPhotoURL(profile.photoURL || '');
         }
         setLoading(false);
       }
@@ -44,13 +47,40 @@ export default function Settings() {
     if (!auth.currentUser || !user) return;
     setSaving(true);
     try {
-      await updateProfile(auth.currentUser, { displayName });
-      await logAudit('user:profile_updated', user.uid, user.orgId, { displayName });
+      await updateProfile(auth.currentUser, { displayName, photoURL });
+      await updateUserProfile(user.uid, { displayName, photoURL });
+      await logAudit('user:profile_updated', user.uid, user.orgId, { displayName, photoURL });
       alert('Profile updated successfully!');
     } catch (error) {
       console.error('Error updating profile:', error);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !user) return;
+
+    setUploading(true);
+    try {
+      const path = `profiles/${user.uid}/${file.name}`;
+      const url = await uploadFile(file, path);
+      setPhotoURL(url);
+      
+      // Update immediately in Auth and Firestore
+      if (auth.currentUser) {
+        await updateProfile(auth.currentUser, { photoURL: url });
+        await updateUserProfile(user.uid, { photoURL: url });
+        setUser({ ...user, photoURL: url });
+      }
+      
+      alert('Profile picture uploaded successfully!');
+    } catch (error) {
+      console.error('Error uploading photo:', error);
+      alert('Failed to upload photo.');
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -70,27 +100,27 @@ export default function Settings() {
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
         {/* Sidebar Navigation */}
-        <div className="space-y-2">
-          <button className="w-full flex items-center gap-3 px-4 py-3 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 rounded-xl font-semibold transition-all">
+        <div className="flex md:flex-col gap-2 overflow-x-auto md:overflow-x-visible pb-4 md:pb-0 scrollbar-hide">
+          <button className="whitespace-nowrap flex items-center gap-3 px-4 py-3 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 rounded-xl font-semibold transition-all shrink-0">
             <User className="w-5 h-5" />
             My Profile
           </button>
-          <button className="w-full flex items-center gap-3 px-4 py-3 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl font-medium transition-all">
+          <button className="whitespace-nowrap flex items-center gap-3 px-4 py-3 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl font-medium transition-all shrink-0">
             <Bell className="w-5 h-5" />
             Notifications
           </button>
-          <button className="w-full flex items-center gap-3 px-4 py-3 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl font-medium transition-all">
+          <button className="whitespace-nowrap flex items-center gap-3 px-4 py-3 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl font-medium transition-all shrink-0">
             <Lock className="w-5 h-5" />
             Security & Privacy
           </button>
-          <button className="w-full flex items-center gap-3 px-4 py-3 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl font-medium transition-all">
+          <button className="whitespace-nowrap flex items-center gap-3 px-4 py-3 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl font-medium transition-all shrink-0">
             <Smartphone className="w-5 h-5" />
             Devices
           </button>
-          <div className="pt-4">
+          <div className="md:pt-4 shrink-0">
             <button 
               onClick={handleLogout}
-              className="w-full flex items-center gap-3 px-4 py-3 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl font-medium transition-all"
+              className="whitespace-nowrap flex items-center gap-3 px-4 py-3 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl font-medium transition-all"
             >
               <LogOut className="w-5 h-5" />
               Logout Session
@@ -104,12 +134,28 @@ export default function Settings() {
           <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
             <div className="flex items-center gap-6 mb-8">
               <div className="relative group">
-                <div className="w-24 h-24 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 rounded-full flex items-center justify-center text-3xl font-bold border-4 border-white dark:border-slate-800 shadow-lg">
-                  {displayName.charAt(0)}
+                <div className="w-24 h-24 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 rounded-full flex items-center justify-center text-3xl font-bold border-4 border-white dark:border-slate-800 shadow-lg overflow-hidden">
+                  {photoURL ? (
+                    <img src={photoURL} alt={displayName} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                  ) : (
+                    displayName.charAt(0)
+                  )}
+                  {uploading && (
+                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                      <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    </div>
+                  )}
                 </div>
-                <button className="absolute bottom-0 right-0 p-2 bg-indigo-600 text-white rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-opacity">
+                <label className="absolute bottom-0 right-0 p-2 bg-indigo-600 text-white rounded-full shadow-lg cursor-pointer hover:bg-indigo-700 transition-all">
                   <Camera className="w-4 h-4" />
-                </button>
+                  <input 
+                    type="file" 
+                    className="hidden" 
+                    accept="image/*"
+                    onChange={handlePhotoUpload}
+                    disabled={uploading}
+                  />
+                </label>
               </div>
               <div>
                 <h3 className="text-xl font-bold text-slate-900 dark:text-white">{displayName}</h3>

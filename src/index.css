@@ -1,1 +1,28 @@
 @import "tailwindcss";
+
+@layer base {
+  @media print {
+    .print\:hidden {
+      display: none !important;
+    }
+    
+    body {
+      background: white !important;
+      color: black !important;
+    }
+
+    main {
+      padding: 0 !important;
+      margin: 0 !important;
+    }
+
+    .max-w-7xl {
+      max-width: none !important;
+    }
+
+    /* Hide sidebar and header by default during print if they don't have print:hidden */
+    aside, header {
+      display: none !important;
+    }
+  }
+}

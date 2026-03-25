@@ -7,7 +7,8 @@ import {
   Clock, 
   AlertCircle,
   ChevronRight,
-  Plus
+  Plus,
+  RefreshCw
 } from 'lucide-react';
 import { 
   BarChart, 
@@ -25,6 +26,7 @@ import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { getUserProfile, subscribeToReports, subscribeToTasks } from '../services/firebaseService';
 import { UserProfile, Report, Task } from '../types';
 import { format } from 'date-fns';
+import { useNavigate } from 'react-router-dom';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -37,8 +39,10 @@ export default function Dashboard() {
   const [reports, setReports] = useState<Report[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [teamMembersCount, setTeamMembersCount] = useState(0);
+  const [teamMembers, setTeamMembers] = useState<UserProfile[]>([]);
   const [supervisor, setSupervisor] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
 
   useEffect(() => {
     const unsubscribeAuth = auth.onAuthStateChanged(async (authUser) => {
@@ -57,9 +61,11 @@ export default function Dashboard() {
             setTasks(data);
           }, profile.role === 'WORKER' ? { assigneeId: profile.uid } : undefined);
 
-          // Subscribe to team members count
+          // Subscribe to team members
           const q = query(collection(db, 'users'), where('orgId', '==', profile.orgId));
           const unsubTeam = onSnapshot(q, (snapshot) => {
+            const members = snapshot.docs.map(doc => doc.data() as UserProfile);
+            setTeamMembers(members);
             setTeamMembersCount(snapshot.size);
           });
 
@@ -76,6 +82,16 @@ export default function Dashboard() {
   }, []);
 
   if (loading) return <div className="flex items-center justify-center h-full">Loading dashboard...</div>;
+
+  const getAuthorName = (authorId: string) => {
+    const member = teamMembers.find(m => m.uid === authorId);
+    return member ? member.displayName : `User ${authorId.slice(0, 4)}`;
+  };
+
+  const getAuthorPhoto = (authorId: string) => {
+    const member = teamMembers.find(m => m.uid === authorId);
+    return member?.photoURL;
+  };
 
   const completedTasks = tasks.filter(t => t.status === 'completed' || t.status === 'approved').length;
   const totalTasks = tasks.length;
@@ -98,6 +114,11 @@ export default function Dashboard() {
     { name: 'Sun', reports: 1, tasks: 0 },
   ];
 
+  const handleRefresh = () => {
+    setLoading(true);
+    setTimeout(() => setLoading(false), 500);
+  };
+
   return (
     <div className="space-y-8">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -106,11 +127,24 @@ export default function Dashboard() {
           <p className="text-slate-500 dark:text-slate-400">Here's what's happening in your organization today.</p>
         </div>
         <div className="flex gap-3">
-          <button className="flex items-center gap-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-4 py-2 rounded-xl text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all shadow-sm">
+          <button 
+            onClick={handleRefresh}
+            className="flex items-center gap-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-4 py-2 rounded-xl text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all shadow-sm"
+          >
+            <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
+            Refresh
+          </button>
+          <button 
+            onClick={() => navigate('/reports')}
+            className="flex items-center gap-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-4 py-2 rounded-xl text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all shadow-sm"
+          >
             <Clock className="w-4 h-4" />
             View Timeline
           </button>
-          <button className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 dark:shadow-none">
+          <button 
+            onClick={() => navigate('/reports')}
+            className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 dark:shadow-none"
+          >
             <Plus className="w-4 h-4" />
             New Report
           </button>
@@ -195,7 +229,12 @@ export default function Dashboard() {
         <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm transition-colors">
           <div className="flex items-center justify-between mb-6">
             <h3 className="font-bold text-slate-900 dark:text-white">Recent Tasks</h3>
-            <button className="text-xs font-bold text-indigo-600 hover:underline">View All</button>
+            <button 
+              onClick={() => navigate('/tasks')}
+              className="text-xs font-bold text-indigo-600 hover:underline"
+            >
+              View All
+            </button>
           </div>
           <div className="space-y-4">
             {tasks.slice(0, 5).map((task) => (
@@ -225,7 +264,12 @@ export default function Dashboard() {
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden transition-colors">
         <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
           <h3 className="font-bold text-slate-900 dark:text-white">Recent Reports</h3>
-          <button className="text-sm font-bold text-indigo-600 hover:underline">View All Reports</button>
+          <button 
+            onClick={() => navigate('/reports')}
+            className="text-sm font-bold text-indigo-600 hover:underline"
+          >
+            View All Reports
+          </button>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
@@ -246,10 +290,14 @@ export default function Dashboard() {
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 bg-slate-200 dark:bg-slate-700 rounded-full flex items-center justify-center text-[10px] font-bold dark:text-white">
-                        {report.authorId.charAt(0)}
+                      <div className="w-6 h-6 bg-slate-200 dark:bg-slate-700 rounded-full flex items-center justify-center text-[10px] font-bold dark:text-white overflow-hidden">
+                        {getAuthorPhoto(report.authorId) ? (
+                          <img src={getAuthorPhoto(report.authorId)} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          getAuthorName(report.authorId).charAt(0)
+                        )}
                       </div>
-                      <span className="text-sm text-slate-600 dark:text-slate-400">User {report.authorId.slice(0, 4)}</span>
+                      <span className="text-sm text-slate-600 dark:text-slate-400">{getAuthorName(report.authorId)}</span>
                     </div>
                   </td>
                   <td className="px-6 py-4 text-sm text-slate-500 dark:text-slate-400">

@@ -16,7 +16,10 @@ import {
   Trash2,
   Check,
   ChevronRight,
-  UserCheck
+  UserCheck,
+  RefreshCw,
+  Download,
+  FileText
 } from 'lucide-react';
 import { auth, db } from '../firebase';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
@@ -60,6 +63,47 @@ export default function Tasks() {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [teamMembers, setTeamMembers] = useState<UserProfile[]>([]);
+
+  const taskTemplates = [
+    {
+      title: 'Daily Inventory Check',
+      description: 'Perform a full count of all items in the main warehouse. Verify against the digital inventory system and report any discrepancies.',
+      checklist: [
+        { id: '1', text: 'Count main warehouse items', completed: false },
+        { id: '2', text: 'Verify against digital records', completed: false },
+        { id: '3', text: 'Report discrepancies to manager', completed: false }
+      ],
+      priority: 'medium'
+    },
+    {
+      title: 'Weekly Safety Audit',
+      description: 'Conduct a comprehensive safety inspection of the facility. Ensure all fire extinguishers are accessible, emergency exits are clear, and safety signage is visible.',
+      checklist: [
+        { id: '1', text: 'Check fire extinguishers', completed: false },
+        { id: '2', text: 'Inspect emergency exits', completed: false },
+        { id: '3', text: 'Verify safety signage', completed: false },
+        { id: '4', text: 'Document any hazards', completed: false }
+      ],
+      priority: 'high'
+    },
+    {
+      title: 'End of Shift Report',
+      description: 'Complete the end-of-shift report detailing all activities, incidents, and pending tasks for the next shift.',
+      checklist: [
+        { id: '1', text: 'Summarize shift activities', completed: false },
+        { id: '2', text: 'Document any incidents', completed: false },
+        { id: '3', text: 'List pending tasks for next shift', completed: false }
+      ],
+      priority: 'low'
+    }
+  ];
+
+  const applyTemplate = (template: typeof taskTemplates[0]) => {
+    setTitle(template.title);
+    setDescription(template.description);
+    setChecklistItems(template.checklist);
+    setPriority(template.priority as any);
+  };
 
   useEffect(() => {
     const unsubscribeAuth = auth.onAuthStateChanged(async (authUser) => {
@@ -199,23 +243,106 @@ export default function Tasks() {
     }
   };
 
+  const handleRefresh = () => {
+    setLoading(true);
+    setTimeout(() => setLoading(false), 500);
+  };
+
+  const handleExport = () => {
+    window.print();
+  };
+
+  const handleExportCSV = () => {
+    const csvData = tasks.map(t => ({
+      ID: t.id,
+      Title: t.title,
+      Status: t.status,
+      Priority: t.priority,
+      Deadline: t.deadline,
+      Assignees: t.assigneeIds.join('; ')
+    }));
+    
+    if (csvData.length === 0) return;
+    const headers = Object.keys(csvData[0]).join(',');
+    const rows = csvData.map(row => Object.values(row).map(v => `"${v}"`).join(',')).join('\n');
+    const csvContent = "data:text/csv;charset=utf-8," + headers + "\n" + rows;
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", "tasks_export.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div className="space-y-6 print:space-y-4">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 print:hidden">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">Tasks</h1>
           <p className="text-slate-500 dark:text-slate-400">Assign and track accountability through tasks.</p>
         </div>
-        {user && ['SUPER_ADMIN', 'ORG_ADMIN', 'MANAGER', 'SUPERVISOR'].includes(user.role) && (
+        <div className="flex items-center gap-3">
           <button 
-            onClick={() => setIsModalOpen(true)}
-            className="flex items-center justify-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-xl font-semibold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 dark:shadow-none"
+            onClick={handleRefresh}
+            className="flex items-center justify-center gap-2 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 px-4 py-3 rounded-xl font-semibold border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all shadow-sm"
           >
-            <Plus className="w-5 h-5" />
-            Assign Task
+            <RefreshCw className={cn("w-5 h-5", loading && "animate-spin")} />
+            Refresh
           </button>
-        )}
+          {user && ['SUPER_ADMIN', 'ORG_ADMIN', 'MANAGER', 'SUPERVISOR'].includes(user.role) && (
+            <button 
+              onClick={() => setIsModalOpen(true)}
+              className="flex items-center justify-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-xl font-semibold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 dark:shadow-none"
+            >
+              <Plus className="w-5 h-5" />
+              Assign Task
+            </button>
+          )}
+          <button 
+            onClick={handleExportCSV}
+            className="flex items-center justify-center gap-2 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 px-4 py-3 rounded-xl font-semibold border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all shadow-sm"
+          >
+            <Download className="w-5 h-5" />
+            Export CSV
+          </button>
+          <button 
+            onClick={handleExport}
+            className="flex items-center justify-center gap-2 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 px-4 py-3 rounded-xl font-semibold border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all shadow-sm"
+          >
+            <FileText className="w-5 h-5" />
+            Export PDF
+          </button>
+        </div>
       </div>
+
+      {/* Quick Task Bar */}
+      {user && ['SUPER_ADMIN', 'ORG_ADMIN', 'MANAGER', 'SUPERVISOR'].includes(user.role) && (
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+          <div className="flex flex-col sm:flex-row items-center gap-4">
+            <div className="flex-1 w-full">
+              <input 
+                type="text"
+                placeholder="Quickly add a task title..."
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && title.trim()) {
+                    setIsModalOpen(true);
+                  }
+                }}
+                className="w-full px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 dark:focus:ring-indigo-900 outline-none transition-all text-sm"
+              />
+            </div>
+            <button 
+              onClick={() => title.trim() && setIsModalOpen(true)}
+              className="w-full sm:w-auto px-6 py-2 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 rounded-xl text-xs font-bold border border-indigo-100 dark:border-indigo-900/30 hover:bg-indigo-100 transition-all"
+            >
+              CONTINUE TO ASSIGN
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col md:flex-row gap-4">
@@ -337,19 +464,19 @@ export default function Tasks() {
 
       {/* Task Details Modal */}
       {selectedTask && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-4xl max-h-[90vh] rounded-3xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200 flex flex-col">
-            <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-white dark:bg-slate-900">
-              <div className="flex items-center gap-4">
+        <div className="fixed inset-0 z-[70] flex items-center justify-center sm:p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white dark:bg-slate-900 w-full h-full sm:h-auto sm:max-w-4xl sm:max-h-[90vh] sm:rounded-3xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200 flex flex-col">
+            <div className="p-4 sm:p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-white dark:bg-slate-900 shrink-0">
+              <div className="flex items-center gap-3 sm:gap-4">
                 <div className={cn(
-                  "w-10 h-10 rounded-xl flex items-center justify-center",
+                  "w-8 h-8 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center",
                   selectedTask.status === 'completed' ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400' : 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400'
                 )}>
-                  {selectedTask.status === 'completed' ? <CheckCircle2 className="w-5 h-5" /> : <CheckSquare className="w-5 h-5" />}
+                  {selectedTask.status === 'completed' ? <CheckCircle2 className="w-4 h-4 sm:w-5 sm:h-5" /> : <CheckSquare className="w-4 h-4 sm:w-5 sm:h-5" />}
                 </div>
-                <div>
-                  <h2 className="text-lg font-bold text-slate-900 dark:text-white">{selectedTask.title}</h2>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">Due {format(new Date(selectedTask.deadline), 'MMMM d, yyyy')}</p>
+                <div className="min-w-0">
+                  <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white truncate">{selectedTask.title}</h2>
+                  <p className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400">Due {format(new Date(selectedTask.deadline), 'MMMM d, yyyy')}</p>
                 </div>
               </div>
               <button 
@@ -360,8 +487,8 @@ export default function Tasks() {
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-8">
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-8">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 sm:gap-12">
                 <div className="lg:col-span-2 space-y-8">
                   <section>
                     <h4 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-4">Description</h4>
@@ -512,16 +639,33 @@ export default function Tasks() {
 
       {/* Assign Task Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
-          <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
-            <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-indigo-600 text-white">
-              <h2 className="text-xl font-bold">Assign New Task</h2>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center sm:p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white dark:bg-slate-900 w-full h-full sm:h-auto sm:max-w-lg sm:rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200 flex flex-col">
+            <div className="p-4 sm:p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-indigo-600 text-white shrink-0">
+              <h2 className="text-lg sm:text-xl font-bold">Assign New Task</h2>
               <button onClick={() => setIsModalOpen(false)} className="p-2 hover:bg-white/10 rounded-lg transition-colors">
-                <AlertCircle className="w-6 h-6" />
+                <X className="w-6 h-6" />
               </button>
             </div>
             
-            <form onSubmit={handleCreateTask} className="p-6 space-y-6">
+            <form onSubmit={handleCreateTask} className="p-4 sm:p-6 space-y-6 overflow-y-auto flex-1">
+              {/* Template Selector */}
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">Quick Templates</label>
+                <div className="flex flex-wrap gap-2">
+                  {taskTemplates.map((template, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => applyTemplate(template)}
+                      className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 rounded-lg text-xs font-bold border border-indigo-100 dark:border-indigo-900/30 hover:bg-indigo-100 transition-all"
+                    >
+                      {template.title}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div>
                 <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">Task Title</label>
                 <input 
@@ -548,7 +692,28 @@ export default function Tasks() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">Assignees</label>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-sm font-semibold text-slate-700 dark:text-slate-300">Assignees</label>
+                    <div className="flex gap-2">
+                      <button 
+                        type="button"
+                        onClick={() => setSelectedAssigneeIds(teamMembers.map(m => m.uid))}
+                        className="text-[10px] font-bold text-indigo-600 uppercase hover:underline"
+                      >
+                        All
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={() => {
+                          setSelectedAssigneeIds([]);
+                          setLeadAssigneeId('');
+                        }}
+                        className="text-[10px] font-bold text-red-600 uppercase hover:underline"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
                   <div className="max-h-40 overflow-y-auto p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2">
                     {teamMembers.map(member => (
                       <label key={member.uid} className="flex items-center gap-3 cursor-pointer group">

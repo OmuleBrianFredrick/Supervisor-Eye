@@ -23,7 +23,7 @@ import {
 } from 'firebase/auth';
 import { db, auth, storage } from '../firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { UserProfile, Organization, Report, Task, Notification, AuditLog, Comment, Webhook, ReportHistory, ReportType } from '../types';
+import { UserProfile, Organization, Report, Task, Notification, AuditLog, Comment, Webhook, ReportHistory, ReportType, PublicContent } from '../types';
 
 enum OperationType {
   CREATE = 'create',
@@ -67,6 +67,37 @@ export const sendPasswordReset = async (email: string) => {
   }
 };
 
+// --- Public Content ---
+export const getPublicContent = async (): Promise<PublicContent | null> => {
+  try {
+    const docRef = doc(db, 'publicContent', 'home');
+    const docSnap = await getDoc(docRef);
+    return docSnap.exists() ? { id: docSnap.id, ...docSnap.data() } as PublicContent : null;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.GET, 'publicContent/home');
+    return null;
+  }
+};
+
+export const updatePublicContent = async (content: Partial<PublicContent>) => {
+  try {
+    const docRef = doc(db, 'publicContent', 'home');
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+      await updateDoc(docRef, { ...content, updatedAt: new Date().toISOString() });
+    } else {
+      await setDoc(docRef, { 
+        ...content, 
+        companyName: content.companyName || 'Supervisor Eye',
+        description: content.description || 'Hierarchical Reporting & Accountability Platform',
+        updatedAt: new Date().toISOString() 
+      });
+    }
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, 'publicContent/home');
+  }
+};
+
 // --- User Profile ---
 export const getUserProfile = async (uid: string): Promise<UserProfile | null> => {
   try {
@@ -85,6 +116,15 @@ export const createUserProfile = async (profile: UserProfile) => {
     await logAudit('user:created', profile.uid, profile.orgId, { email: profile.email });
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, `users/${profile.uid}`);
+  }
+};
+
+export const updateUserProfile = async (uid: string, updates: Partial<UserProfile>) => {
+  try {
+    const docRef = doc(db, 'users', uid);
+    await updateDoc(docRef, updates);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `users/${uid}`);
   }
 };
 
@@ -215,13 +255,14 @@ export const logAudit = async (action: string, targetId: string, orgId: string, 
   }
 };
 
-export const sendNotification = async (recipientId: string, title: string, message: string, type: string) => {
+export const sendNotification = async (recipientId: string, title: string, message: string, type: string, relatedId?: string) => {
   try {
     await addDoc(collection(db, 'notifications'), {
       recipientId,
       title,
       message,
       type,
+      relatedId: relatedId || null,
       read: false,
       createdAt: new Date().toISOString()
     });
@@ -379,5 +420,50 @@ export const triggerWebhooks = async (orgId: string, event: string, payload: any
     });
   } catch (error) {
     console.error('Error triggering webhooks:', error);
+  }
+};
+
+export const checkUpcomingDeadlines = async (orgId: string, userId: string) => {
+  try {
+    const now = new Date();
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const q = query(
+      collection(db, 'tasks'),
+      where('orgId', '==', orgId),
+      where('status', 'in', ['pending', 'in_progress']),
+      where('deadline', '<=', tomorrow.toISOString()),
+      where('deadline', '>=', now.toISOString())
+    );
+
+    const snapshot = await getDocs(q);
+    for (const doc of snapshot.docs) {
+      const task = { id: doc.id, ...doc.data() } as Task;
+      
+      // Only notify if the user is an assignee
+      if (task.assigneeIds.includes(userId)) {
+        // Check if a reminder was already sent
+        const notifQuery = query(
+          collection(db, 'notifications'),
+          where('recipientId', '==', userId),
+          where('type', '==', 'task_deadline_reminder'),
+          where('relatedId', '==', task.id)
+        );
+        const notifSnapshot = await getDocs(notifQuery);
+        
+        if (notifSnapshot.empty) {
+          await sendNotification(
+            userId,
+            'Task Deadline Approaching',
+            `Task "${task.title}" is due soon (${new Date(task.deadline).toLocaleDateString()}).`,
+            'task_deadline_reminder',
+            task.id
+          );
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Error checking deadlines:', error);
   }
 };
