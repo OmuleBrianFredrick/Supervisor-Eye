@@ -122,30 +122,37 @@ export default function Tasks() {
   }, []);
 
   useEffect(() => {
+    let unsubTasks: (() => void) | undefined;
+    let unsubTeam: (() => void) | undefined;
+
     const unsubscribeAuth = auth.onAuthStateChanged(async (authUser) => {
       if (authUser) {
         const profile = await getUserProfile(authUser.uid);
         setUser(profile);
         if (profile) {
-          const unsubTasks = subscribeToTasks(profile.orgId, (data) => {
+          unsubTasks = subscribeToTasks(profile.orgId, (data) => {
             setTasks(data);
             setLoading(false);
           }, profile.role === 'WORKER' ? { assigneeId: profile.uid } : undefined);
 
           // Fetch team members for assignment
           const q = query(collection(db, 'users'), where('orgId', '==', profile.orgId), where('status', '==', 'active'));
-          const unsubTeam = onSnapshot(q, (snapshot) => {
+          unsubTeam = onSnapshot(q, (snapshot) => {
             setTeamMembers(snapshot.docs.map(doc => doc.data() as UserProfile));
           });
-
-          return () => {
-            unsubTasks();
-            unsubTeam();
-          };
         }
+      } else {
+        if (unsubTasks) unsubTasks();
+        if (unsubTeam) unsubTeam();
+        setUser(null);
       }
     });
-    return () => unsubscribeAuth();
+
+    return () => {
+      unsubscribeAuth();
+      if (unsubTasks) unsubTasks();
+      if (unsubTeam) unsubTeam();
+    };
   }, []);
 
   const handleCreateTask = async (e: React.FormEvent) => {

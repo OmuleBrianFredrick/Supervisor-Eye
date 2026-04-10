@@ -47,6 +47,10 @@ export default function Dashboard() {
   const navigate = useNavigate();
 
   useEffect(() => {
+    let unsubReports: (() => void) | undefined;
+    let unsubTasks: (() => void) | undefined;
+    let unsubTeam: (() => void) | undefined;
+
     const unsubscribeAuth = auth.onAuthStateChanged(async (authUser) => {
       if (authUser) {
         const profile = await getUserProfile(authUser.uid);
@@ -55,32 +59,38 @@ export default function Dashboard() {
           if (profile.supervisorId) {
             getUserProfile(profile.supervisorId).then(setSupervisor);
           }
-          const unsubReports = subscribeToReports(profile.orgId, (data) => {
+          unsubReports = subscribeToReports(profile.orgId, (data) => {
             setReports(data);
           }, profile.role === 'WORKER' ? { authorId: profile.uid } : undefined);
 
-          const unsubTasks = subscribeToTasks(profile.orgId, (data) => {
+          unsubTasks = subscribeToTasks(profile.orgId, (data) => {
             setTasks(data);
           }, profile.role === 'WORKER' ? { assigneeId: profile.uid } : undefined);
 
           // Subscribe to team members
           const q = query(collection(db, 'users'), where('orgId', '==', profile.orgId));
-          const unsubTeam = onSnapshot(q, (snapshot) => {
+          unsubTeam = onSnapshot(q, (snapshot) => {
             const members = snapshot.docs.map(doc => doc.data() as UserProfile);
             setTeamMembers(members);
             setTeamMembersCount(snapshot.size);
           });
 
           setLoading(false);
-          return () => {
-            unsubReports();
-            unsubTasks();
-            unsubTeam();
-          };
         }
+      } else {
+        if (unsubReports) unsubReports();
+        if (unsubTasks) unsubTasks();
+        if (unsubTeam) unsubTeam();
+        setUser(null);
       }
     });
-    return () => unsubscribeAuth();
+
+    return () => {
+      unsubscribeAuth();
+      if (unsubReports) unsubReports();
+      if (unsubTasks) unsubTasks();
+      if (unsubTeam) unsubTeam();
+    };
   }, []);
 
   if (loading) return <div className="flex items-center justify-center h-full">{t('Loading')}</div>;

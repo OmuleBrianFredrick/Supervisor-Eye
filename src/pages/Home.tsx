@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ShieldCheck, ArrowRight, PlayCircle, Bell, CheckCircle2, Users, BarChart3, Lock } from 'lucide-react';
+import { ShieldCheck, ArrowRight, PlayCircle, Bell, CheckCircle2, Users, BarChart3, Lock, SparklesIcon } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import { auth } from '../firebase';
+import AnimatedTaskDemo from '../components/AnimatedTaskDemo';
+import AnimatedAnalyticsDemo from '../components/AnimatedAnalyticsDemo';
 
 export default function Home() {
   const { theme } = useTheme();
@@ -170,26 +172,13 @@ export default function Home() {
                 </ul>
               </div>
               <div className="order-1 lg:order-2 bg-slate-200 dark:bg-slate-800 rounded-3xl aspect-[4/3] overflow-hidden relative shadow-2xl border border-slate-200 dark:border-slate-700">
-                {/* Placeholder for Demo Image/Video */}
-                <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-900">
-                  <img src="https://images.unsplash.com/photo-1611162617474-5b21e879e113?q=80&w=1000&auto=format&fit=crop" alt="Task Management Dashboard" className="w-full h-full object-cover opacity-90 mix-blend-overlay" />
-                  <div className="absolute inset-0 bg-indigo-900/20"></div>
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="w-20 h-20 bg-white/90 dark:bg-slate-900/90 backdrop-blur-sm rounded-full flex items-center justify-center shadow-xl cursor-pointer hover:scale-110 transition-transform">
-                      <PlayCircle className="w-10 h-10 text-indigo-600 dark:text-indigo-400 ml-1" />
-                    </div>
-                  </div>
-                </div>
+                <AnimatedTaskDemo />
               </div>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
               <div className="bg-slate-200 dark:bg-slate-800 rounded-3xl aspect-[4/3] overflow-hidden relative shadow-2xl border border-slate-200 dark:border-slate-700">
-                {/* Placeholder for Demo Image/Video */}
-                <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-900">
-                  <img src="https://images.unsplash.com/photo-1551288049-bebda4e38f71?q=80&w=1000&auto=format&fit=crop" alt="Analytics Dashboard" className="w-full h-full object-cover opacity-90 mix-blend-overlay" />
-                  <div className="absolute inset-0 bg-purple-900/20"></div>
-                </div>
+                <AnimatedAnalyticsDemo />
               </div>
               <div>
                 <div className="w-16 h-16 bg-purple-100 dark:bg-purple-900/30 rounded-2xl flex items-center justify-center mb-6">

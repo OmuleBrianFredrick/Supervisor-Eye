@@ -57,6 +57,9 @@ export default function Team() {
   }, [teamMembers]);
 
   useEffect(() => {
+    let unsubTeam: (() => void) | undefined;
+    let unsubAudit: (() => void) | undefined;
+
     const unsubscribeAuth = auth.onAuthStateChanged(async (authUser) => {
       if (authUser) {
         const profile = await getUserProfile(authUser.uid);
@@ -64,7 +67,7 @@ export default function Team() {
         if (profile) {
           // Query all users in the same organization
           const q = query(collection(db, 'users'), where('orgId', '==', profile.orgId));
-          const unsubTeam = onSnapshot(q, (snapshot) => {
+          unsubTeam = onSnapshot(q, (snapshot) => {
             const members = snapshot.docs.map(doc => doc.data() as UserProfile);
             setTeamMembers(members);
             setLoading(false);
@@ -77,18 +80,22 @@ export default function Team() {
             orderBy('timestamp', 'desc'),
             limit(10)
           );
-          const unsubAudit = onSnapshot(auditQ, (snapshot) => {
+          unsubAudit = onSnapshot(auditQ, (snapshot) => {
             setAuditLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
           });
-
-          return () => {
-            unsubTeam();
-            unsubAudit();
-          };
         }
+      } else {
+        if (unsubTeam) unsubTeam();
+        if (unsubAudit) unsubAudit();
+        setUser(null);
       }
     });
-    return () => unsubscribeAuth();
+
+    return () => {
+      unsubscribeAuth();
+      if (unsubTeam) unsubTeam();
+      if (unsubAudit) unsubAudit();
+    };
   }, []);
 
   const handleInvite = (e: React.FormEvent) => {

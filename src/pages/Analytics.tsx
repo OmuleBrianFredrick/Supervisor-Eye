@@ -46,29 +46,39 @@ export default function Analytics() {
   const [timeRange, setTimeRange] = useState<'7d' | '30d' | '90d' | 'all'>('30d');
 
   useEffect(() => {
+    let unsubReports: (() => void) | undefined;
+    let unsubTasks: (() => void) | undefined;
+    let unsubTeam: (() => void) | undefined;
+
     const unsubscribeAuth = auth.onAuthStateChanged(async (authUser) => {
       if (authUser) {
         const profile = await getUserProfile(authUser.uid);
         setUser(profile);
         if (profile) {
-          const unsubReports = subscribeToReports(profile.orgId, (data) => setReports(data));
-          const unsubTasks = subscribeToTasks(profile.orgId, (data) => setTasks(data));
+          unsubReports = subscribeToReports(profile.orgId, (data) => setReports(data));
+          unsubTasks = subscribeToTasks(profile.orgId, (data) => setTasks(data));
           
           const q = query(collection(db, 'users'), where('orgId', '==', profile.orgId));
-          const unsubTeam = onSnapshot(q, (snapshot) => {
+          unsubTeam = onSnapshot(q, (snapshot) => {
             setTeamMembers(snapshot.docs.map(doc => doc.data() as UserProfile));
           });
 
           setLoading(false);
-          return () => {
-            unsubReports();
-            unsubTasks();
-            unsubTeam();
-          };
         }
+      } else {
+        if (unsubReports) unsubReports();
+        if (unsubTasks) unsubTasks();
+        if (unsubTeam) unsubTeam();
+        setUser(null);
       }
     });
-    return () => unsubscribeAuth();
+
+    return () => {
+      unsubscribeAuth();
+      if (unsubReports) unsubReports();
+      if (unsubTasks) unsubTasks();
+      if (unsubTeam) unsubTeam();
+    };
   }, []);
 
   // --- Calculations ---

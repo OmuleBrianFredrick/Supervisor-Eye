@@ -280,38 +280,49 @@ export default function Reports() {
   }, [reports]);
 
   useEffect(() => {
+    let unsubReports: (() => void) | undefined;
+    let unsubTasks: (() => void) | undefined;
+    let unsubTypes: (() => void) | undefined;
+    let unsubTeam: (() => void) | undefined;
+
     const unsubscribeAuth = auth.onAuthStateChanged(async (authUser) => {
       if (authUser) {
         const profile = await getUserProfile(authUser.uid);
         setUser(profile);
         if (profile) {
-          const unsubReports = subscribeToReports(profile.orgId, (data) => {
+          unsubReports = subscribeToReports(profile.orgId, (data) => {
             setReports(data);
             setLoading(false);
           }, profile.role === 'WORKER' ? { authorId: profile.uid } : undefined);
 
-          const unsubTasks = subscribeToTasks(profile.orgId, (data) => {
+          unsubTasks = subscribeToTasks(profile.orgId, (data) => {
             setUserTasks(data.filter(t => t.status !== 'completed'));
           }, profile.role === 'WORKER' ? { assigneeId: profile.uid } : undefined);
 
-          const unsubTypes = subscribeToReportTypes(profile.orgId, setReportTypes);
+          unsubTypes = subscribeToReportTypes(profile.orgId, setReportTypes);
 
           // Fetch team members for author filtering
           const q = query(collection(db, 'users'), where('orgId', '==', profile.orgId), where('status', '==', 'active'));
-          const unsubTeam = onSnapshot(q, (snapshot) => {
+          unsubTeam = onSnapshot(q, (snapshot) => {
             setTeamMembers(snapshot.docs.map(doc => doc.data() as UserProfile));
           });
-
-          return () => {
-            unsubReports();
-            unsubTasks();
-            unsubTypes();
-            unsubTeam();
-          };
         }
+      } else {
+        if (unsubReports) unsubReports();
+        if (unsubTasks) unsubTasks();
+        if (unsubTypes) unsubTypes();
+        if (unsubTeam) unsubTeam();
+        setUser(null);
       }
     });
-    return () => unsubscribeAuth();
+
+    return () => {
+      unsubscribeAuth();
+      if (unsubReports) unsubReports();
+      if (unsubTasks) unsubTasks();
+      if (unsubTypes) unsubTypes();
+      if (unsubTeam) unsubTeam();
+    };
   }, []);
 
   const handleCreateType = async (e: React.FormEvent) => {
