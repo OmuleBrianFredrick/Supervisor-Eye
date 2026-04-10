@@ -35,7 +35,7 @@ export default function Register() {
     const checkAuth = async () => {
       if (auth.currentUser) {
         const profile = await getUserProfile(auth.currentUser.uid);
-        if (profile) navigate('/');
+        if (profile) navigate('/dashboard');
       }
     };
     checkAuth();
@@ -95,14 +95,15 @@ export default function Register() {
       await createUserProfile({
         uid: auth.currentUser.uid,
         email: auth.currentUser.email!,
-        displayName: auth.currentUser.displayName!,
+        displayName: auth.currentUser.displayName || fullName,
+        photoURL: auth.currentUser.photoURL || '',
         role: orgAction === 'create' ? 'ORG_ADMIN' : role,
         orgId,
         status: orgAction === 'create' ? 'active' : 'pending_approval',
         createdAt: new Date().toISOString()
       });
 
-      navigate('/');
+      navigate('/dashboard');
     } catch (err: any) {
       setError(err.message);
     } finally {

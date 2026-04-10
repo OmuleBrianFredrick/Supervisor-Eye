@@ -23,7 +23,7 @@ export default function Login() {
       
       const profile = await getUserProfile(user.uid);
       if (profile) {
-        navigate('/');
+        navigate('/dashboard');
       } else {
         navigate('/register');
       }
@@ -44,7 +44,7 @@ export default function Login() {
       
       const profile = await getUserProfile(user.uid);
       if (profile) {
-        navigate('/');
+        navigate('/dashboard');
       } else {
         // If no profile, redirect to register to complete setup
         navigate('/register');

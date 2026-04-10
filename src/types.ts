@@ -22,6 +22,10 @@ export interface Organization {
     gpsEnabled: boolean;
     localStorage: boolean;
   };
+  branding?: {
+    logoUrl?: string;
+    primaryColor?: string;
+  };
 }
 
 export interface Report {
@@ -44,6 +48,7 @@ export interface Report {
   reviewedBy?: string;
   reviewComment?: string;
   reviewedAt?: string;
+  rating?: number; // 1-5 stars
   taskId?: string;
   history?: ReportHistory[];
   aiSummary?: string;
@@ -152,4 +157,33 @@ export interface PublicContent {
   news?: { id: string; title: string; content: string; date: string }[];
   gallery?: { id: string; url: string; caption: string }[];
   updatedAt: string;
+}
+
+export interface WorkflowRule {
+  id: string;
+  orgId: string;
+  name: string;
+  trigger: 'report_submitted' | 'report_approved' | 'report_rejected' | 'task_created' | 'task_completed';
+  conditions: {
+    field: string;
+    operator: 'equals' | 'not_equals' | 'contains' | 'greater_than' | 'less_than';
+    value: string;
+  }[];
+  actions: {
+    type: 'send_email' | 'create_task' | 'notify_user' | 'webhook' | 'require_approval';
+    config: Record<string, any>;
+  }[];
+  isActive: boolean;
+  createdAt: string;
+}
+
+export interface Feedback {
+  id: string;
+  recipientId: string;
+  authorId: string;
+  authorName: string;
+  orgId: string;
+  text: string;
+  rating: number; // 1-5
+  createdAt: string;
 }

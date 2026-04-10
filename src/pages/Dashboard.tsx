@@ -29,12 +29,14 @@ import { format } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { useTranslation } from 'react-i18next';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
 export default function Dashboard() {
+  const { t } = useTranslation();
   const [user, setUser] = useState<UserProfile | null>(null);
   const [reports, setReports] = useState<Report[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -81,7 +83,7 @@ export default function Dashboard() {
     return () => unsubscribeAuth();
   }, []);
 
-  if (loading) return <div className="flex items-center justify-center h-full">Loading dashboard...</div>;
+  if (loading) return <div className="flex items-center justify-center h-full">{t('Loading')}</div>;
 
   const getAuthorName = (authorId: string) => {
     const member = teamMembers.find(m => m.uid === authorId);
@@ -98,9 +100,9 @@ export default function Dashboard() {
   const completionRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
   const stats = [
-    { name: 'Total Reports', value: reports.length, icon: FileText, color: 'text-blue-600', bg: 'bg-blue-100' },
-    { name: 'Pending Tasks', value: tasks.filter(t => t.status !== 'completed' && t.status !== 'approved').length, icon: CheckSquare, color: 'text-amber-600', bg: 'bg-amber-100' },
-    { name: 'Team Members', value: teamMembersCount, icon: Users, color: 'text-indigo-600', bg: 'bg-indigo-100' },
+    { name: t('Total Reports'), value: reports.length, icon: FileText, color: 'text-blue-600', bg: 'bg-blue-100' },
+    { name: t('Pending Tasks'), value: tasks.filter(t => t.status !== 'completed' && t.status !== 'approved').length, icon: CheckSquare, color: 'text-amber-600', bg: 'bg-amber-100' },
+    { name: t('Team Members'), value: teamMembersCount, icon: Users, color: 'text-indigo-600', bg: 'bg-indigo-100' },
     { name: 'Completion Rate', value: `${completionRate}%`, icon: TrendingUp, color: 'text-emerald-600', bg: 'bg-emerald-100' },
   ];
 
@@ -123,7 +125,7 @@ export default function Dashboard() {
     <div className="space-y-8">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight transition-colors">Welcome back, {user?.displayName}</h1>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight transition-colors">{t('Welcome')}, {user?.displayName}</h1>
           <p className="text-slate-500 dark:text-slate-400">Here's what's happening in your organization today.</p>
         </div>
         <div className="flex gap-3">
@@ -146,7 +148,7 @@ export default function Dashboard() {
             className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 dark:shadow-none"
           >
             <Plus className="w-4 h-4" />
-            New Report
+            {t('New Report')}
           </button>
         </div>
       </div>
@@ -179,7 +181,7 @@ export default function Dashboard() {
               </select>
             </div>
             <div className="h-80 w-full">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                 <AreaChart data={chartData}>
                   <defs>
                     <linearGradient id="colorReports" x1="0" y1="0" x2="0" y2="1">
@@ -214,10 +216,16 @@ export default function Dashboard() {
                 </div>
               </div>
               <div className="flex gap-3">
-                <button className="bg-white text-indigo-600 px-6 py-3 rounded-xl font-bold text-sm hover:bg-indigo-50 transition-all">
+                <a 
+                  href={`mailto:${supervisor.email}`}
+                  className="bg-white text-indigo-600 px-6 py-3 rounded-xl font-bold text-sm hover:bg-indigo-50 transition-all flex items-center justify-center"
+                >
                   Contact Supervisor
-                </button>
-                <button className="bg-indigo-500 text-white px-6 py-3 rounded-xl font-bold text-sm hover:bg-indigo-400 transition-all">
+                </a>
+                <button 
+                  onClick={() => navigate(`/team?userId=${supervisor.uid}`)}
+                  className="bg-indigo-500 text-white px-6 py-3 rounded-xl font-bold text-sm hover:bg-indigo-400 transition-all"
+                >
                   View Profile
                 </button>
               </div>
@@ -233,7 +241,7 @@ export default function Dashboard() {
               onClick={() => navigate('/tasks')}
               className="text-xs font-bold text-indigo-600 hover:underline"
             >
-              View All
+              {t('View All')}
             </button>
           </div>
           <div className="space-y-4">
@@ -268,7 +276,7 @@ export default function Dashboard() {
             onClick={() => navigate('/reports')}
             className="text-sm font-bold text-indigo-600 hover:underline"
           >
-            View All Reports
+            {t('View All')}
           </button>
         </div>
         <div className="overflow-x-auto">
@@ -314,7 +322,12 @@ export default function Dashboard() {
                     </span>
                   </td>
                   <td className="px-6 py-4 text-right">
-                    <button className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-bold text-sm">View</button>
+                    <button 
+                      onClick={() => navigate(`/reports?reportId=${report.id}`)}
+                      className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-bold text-sm"
+                    >
+                      View
+                    </button>
                   </td>
                 </tr>
               ))}

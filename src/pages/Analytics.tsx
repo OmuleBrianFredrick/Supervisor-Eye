@@ -43,6 +43,7 @@ export default function Analytics() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [teamMembers, setTeamMembers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [timeRange, setTimeRange] = useState<'7d' | '30d' | '90d' | 'all'>('30d');
 
   useEffect(() => {
     const unsubscribeAuth = auth.onAuthStateChanged(async (authUser) => {
@@ -71,18 +72,40 @@ export default function Analytics() {
   }, []);
 
   // --- Calculations ---
+  const filteredReports = reports.filter(r => {
+    if (timeRange === 'all') return true;
+    const reportDate = new Date(r.createdAt);
+    const now = new Date();
+    const diffDays = (now.getTime() - reportDate.getTime()) / (1000 * 3600 * 24);
+    if (timeRange === '7d') return diffDays <= 7;
+    if (timeRange === '30d') return diffDays <= 30;
+    if (timeRange === '90d') return diffDays <= 90;
+    return true;
+  });
+
+  const filteredTasks = tasks.filter(t => {
+    if (timeRange === 'all') return true;
+    const taskDate = new Date(t.createdAt);
+    const now = new Date();
+    const diffDays = (now.getTime() - taskDate.getTime()) / (1000 * 3600 * 24);
+    if (timeRange === '7d') return diffDays <= 7;
+    if (timeRange === '30d') return diffDays <= 30;
+    if (timeRange === '90d') return diffDays <= 90;
+    return true;
+  });
+
   const reportStatusData = [
-    { name: 'Approved', value: reports.filter(r => r.status === 'approved').length, color: '#10b981' },
-    { name: 'Submitted', value: reports.filter(r => r.status === 'submitted').length, color: '#3b82f6' },
-    { name: 'Rejected', value: reports.filter(r => r.status === 'rejected').length, color: '#ef4444' },
-    { name: 'Revision', value: reports.filter(r => r.status === 'revision_requested').length, color: '#f59e0b' },
+    { name: 'Approved', value: filteredReports.filter(r => r.status === 'approved').length, color: '#10b981' },
+    { name: 'Submitted', value: filteredReports.filter(r => r.status === 'submitted').length, color: '#3b82f6' },
+    { name: 'Rejected', value: filteredReports.filter(r => r.status === 'rejected').length, color: '#ef4444' },
+    { name: 'Revision', value: filteredReports.filter(r => r.status === 'revision_requested').length, color: '#f59e0b' },
   ];
 
   const taskPriorityData = [
-    { name: 'Urgent', value: tasks.filter(t => t.priority === 'urgent').length, color: '#ef4444' },
-    { name: 'High', value: tasks.filter(t => t.priority === 'high').length, color: '#f97316' },
-    { name: 'Medium', value: tasks.filter(t => t.priority === 'medium').length, color: '#3b82f6' },
-    { name: 'Low', value: tasks.filter(t => t.priority === 'low').length, color: '#64748b' },
+    { name: 'Urgent', value: filteredTasks.filter(t => t.priority === 'urgent').length, color: '#ef4444' },
+    { name: 'High', value: filteredTasks.filter(t => t.priority === 'high').length, color: '#f97316' },
+    { name: 'Medium', value: filteredTasks.filter(t => t.priority === 'medium').length, color: '#3b82f6' },
+    { name: 'Low', value: filteredTasks.filter(t => t.priority === 'low').length, color: '#64748b' },
   ];
 
   // Calculate Weekly Activity from real data
@@ -166,27 +189,31 @@ export default function Analytics() {
   };
 
   const handleExportCSV = () => {
-    const csvData = userPerformance.map(u => ({
-      Name: u.name,
-      Role: u.role,
-      Reports: u.reports,
-      Approved: u.approved,
-      Tasks: u.tasks,
-      Completed: u.completed,
-      Score: u.score
-    }));
+    const headers = ['Name', 'Role', 'Reports', 'Approved', 'Tasks', 'Completed', 'Efficiency'];
+    const rows = userPerformance.map(perf => [
+      perf.name,
+      perf.role,
+      perf.reports,
+      perf.approved,
+      perf.tasks,
+      perf.completed,
+      `${perf.reports + perf.tasks > 0 ? Math.round(((perf.approved + perf.completed) / (perf.reports + perf.tasks)) * 100) : 0}%`
+    ]);
     
-    if (csvData.length === 0) return;
-    const headers = Object.keys(csvData[0]).join(',');
-    const rows = csvData.map(row => Object.values(row).join(',')).join('\n');
-    const csvContent = "data:text/csv;charset=utf-8," + headers + "\n" + rows;
-    const encodedUri = encodeURI(csvContent);
+    const csvContent = [headers, ...rows].map(e => e.join(",")).join("\n");
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", "analytics_performance.csv");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", `analytics_export_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  const handleExportPDF = () => {
+    window.print();
   };
 
   return (
@@ -204,14 +231,24 @@ export default function Analytics() {
             <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
             Refresh
           </button>
-          <div className="relative group">
-            <button className="flex items-center gap-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-4 py-2 rounded-xl text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all shadow-sm">
-              <Calendar className="w-4 h-4" />
-              Last 7 Days
-            </button>
+          <div className="flex bg-white dark:bg-slate-900 p-1 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+            {(['7d', '30d', '90d', 'all'] as const).map((range) => (
+              <button
+                key={range}
+                onClick={() => setTimeRange(range)}
+                className={cn(
+                  "px-3 py-1.5 rounded-lg text-xs font-bold transition-all uppercase tracking-wider",
+                  timeRange === range 
+                    ? "bg-indigo-600 text-white shadow-md shadow-indigo-200 dark:shadow-none" 
+                    : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                )}
+              >
+                {range}
+              </button>
+            ))}
           </div>
           <button 
-            onClick={handleExport}
+            onClick={handleExportPDF}
             className="flex items-center gap-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-4 py-2 rounded-xl text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all shadow-sm"
           >
             <Download className="w-4 h-4" />
@@ -275,7 +312,7 @@ export default function Analytics() {
             Weekly Activity Trends
           </h3>
           <div className="h-80 w-full">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
               <LineChart data={weeklyActivityData}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" className="dark:stroke-slate-800" />
                 <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 12}} dy={10} />
@@ -298,7 +335,7 @@ export default function Analytics() {
             Efficiency Metrics (%)
           </h3>
           <div className="h-80 w-full">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
               <LineChart data={weeklyActivityData}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" className="dark:stroke-slate-800" />
                 <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 12}} dy={10} />
@@ -321,7 +358,7 @@ export default function Analytics() {
             Report Status Distribution
           </h3>
           <div className="h-80 w-full">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
               <PieChart>
                 <Pie
                   data={reportStatusData}
@@ -352,7 +389,7 @@ export default function Analytics() {
             Task Priority Distribution
           </h3>
           <div className="h-80 w-full">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
               <BarChart data={taskPriorityData}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" className="dark:stroke-slate-800" />
                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 12}} />

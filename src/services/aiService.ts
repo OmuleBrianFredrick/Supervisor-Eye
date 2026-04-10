@@ -134,7 +134,7 @@ export async function generateImage(prompt: string, size: "1K" | "2K" | "4K" = "
 export async function generateVideo(prompt: string, aspectRatio: "16:9" | "9:16" = "16:9"): Promise<string | undefined> {
   try {
     let operation = await ai.models.generateVideos({
-      model: 'veo-3.1-fast-generate-preview',
+      model: 'veo-3.1-lite-generate-preview',
       prompt,
       config: {
         numberOfVideos: 1,

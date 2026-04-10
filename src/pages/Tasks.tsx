@@ -37,12 +37,14 @@ import { format } from 'date-fns';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import CommentSection from '../components/CommentSection';
+import { useTranslation } from 'react-i18next';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
 export default function Tasks() {
+  const { t } = useTranslation();
   const [user, setUser] = useState<UserProfile | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -106,6 +108,20 @@ export default function Tasks() {
   };
 
   useEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    const titleParam = searchParams.get('title');
+    const descParam = searchParams.get('description');
+    
+    if (titleParam || descParam) {
+      setTitle(titleParam || '');
+      setDescription(descParam || '');
+      setIsModalOpen(true);
+      // Clear the URL parameters without refreshing the page
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
+
+  useEffect(() => {
     const unsubscribeAuth = auth.onAuthStateChanged(async (authUser) => {
       if (authUser) {
         const profile = await getUserProfile(authUser.uid);
@@ -148,8 +164,7 @@ export default function Tasks() {
         deadline: new Date(deadline).toISOString(),
         status: 'pending',
         priority,
-        checklist: checklistItems,
-        createdAt: new Date().toISOString()
+        checklist: checklistItems
       });
 
       // Notify all assignees
@@ -279,7 +294,7 @@ export default function Tasks() {
     <div className="space-y-6 print:space-y-4">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 print:hidden">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">Tasks</h1>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">{t('Tasks')}</h1>
           <p className="text-slate-500 dark:text-slate-400">Assign and track accountability through tasks.</p>
         </div>
         <div className="flex items-center gap-3">
@@ -296,7 +311,7 @@ export default function Tasks() {
               className="flex items-center justify-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-xl font-semibold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 dark:shadow-none"
             >
               <Plus className="w-5 h-5" />
-              Assign Task
+              {t('New Task')}
             </button>
           )}
           <button 

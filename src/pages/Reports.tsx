@@ -20,7 +20,9 @@ import {
   MessageSquare,
   CheckSquare,
   RefreshCw,
-  Loader2
+  Loader2,
+  ChevronRight,
+  Star
 } from 'lucide-react';
 import { auth, db } from '../firebase';
 import { 
@@ -43,21 +45,27 @@ import { format } from 'date-fns';
 import { calculateHash } from '../utils/crypto';
 import { summarizeReport, analyzeReport, analyzeImage, textToSpeech } from '../services/aiService';
 import CommentSection from '../components/CommentSection';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, updateDoc, query, collection, where, onSnapshot } from 'firebase/firestore';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { useTranslation } from 'react-i18next';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
 export default function Reports() {
+  const { t } = useTranslation();
   const [user, setUser] = useState<UserProfile | null>(null);
   const [reports, setReports] = useState<Report[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [filterType, setFilterType] = useState<string>('all');
+  const [filterAuthor, setFilterAuthor] = useState<string>('all');
+  const [isSummaryCollapsed, setIsSummaryCollapsed] = useState(true);
+  const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
 
   // Form State
   const [title, setTitle] = useState('');
@@ -68,9 +76,105 @@ export default function Reports() {
   const [submitting, setSubmitting] = useState(false);
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
   const [isListening, setIsListening] = useState<string | null>(null);
+  const [isDraftingWithAI, setIsDraftingWithAI] = useState(false);
+  const [aiDraftTranscript, setAiDraftTranscript] = useState('');
+
+  const handleDraftWithAI = async (transcript: string) => {
+    setIsDraftingWithAI(true);
+    try {
+      const prompt = `
+        You are an AI assistant that structures raw voice transcripts into formal work reports.
+        Extract the following fields from the transcript. If a field is not mentioned, leave it empty.
+        Respond ONLY with a JSON object in this exact format:
+        {
+          "title": "A concise title",
+          "description": "The main body of the report",
+          "challenges": "Any issues or challenges mentioned",
+          "pendingTasks": "Any next steps or pending tasks mentioned"
+        }
+
+        Transcript: "${transcript}"
+      `;
+      
+      const { GoogleGenAI } = await import('@google/genai');
+      const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json"
+        }
+      });
+
+      const result = JSON.parse(response.text);
+      if (result.title) setTitle(result.title);
+      if (result.description) setDescription(result.description);
+      if (result.challenges) setChallenges(result.challenges);
+      if (result.pendingTasks) setPendingTasks(result.pendingTasks);
+      
+    } catch (error) {
+      console.error("Error drafting with AI:", error);
+      alert("Failed to process voice draft. Please try again.");
+    } finally {
+      setIsDraftingWithAI(false);
+      setAiDraftTranscript('');
+    }
+  };
+
+  const startAIDrafting = () => {
+    if (!('webkitSpeechRecognition' in window)) {
+      alert('Speech recognition is not supported in this browser.');
+      return;
+    }
+
+    const recognition = new (window as any).webkitSpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+
+    let finalTranscript = '';
+
+    recognition.onstart = () => setIsListening('ai_draft');
+    
+    recognition.onresult = (event: any) => {
+      let interimTranscript = '';
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        if (event.results[i].isFinal) {
+          finalTranscript += event.results[i][0].transcript + ' ';
+        } else {
+          interimTranscript += event.results[i][0].transcript;
+        }
+      }
+      setAiDraftTranscript(finalTranscript + interimTranscript);
+    };
+
+    recognition.onerror = (event: any) => {
+      console.error("Speech recognition error", event.error);
+      setIsListening(null);
+    };
+
+    recognition.onend = () => {
+      setIsListening(null);
+      if (finalTranscript.trim()) {
+        handleDraftWithAI(finalTranscript.trim());
+      }
+    };
+
+    // We'll stop it manually via a button
+    (window as any).currentRecognition = recognition;
+    recognition.start();
+  };
+
+  const stopAIDrafting = () => {
+    if ((window as any).currentRecognition) {
+      (window as any).currentRecognition.stop();
+    }
+  };
   const [reviewComment, setReviewComment] = useState('');
+  const [reviewRating, setReviewRating] = useState<number>(0);
   const [isReviewing, setIsReviewing] = useState(false);
   const [userTasks, setUserTasks] = useState<Task[]>([]);
+  const [teamMembers, setTeamMembers] = useState<UserProfile[]>([]);
   const [reportTypes, setReportTypes] = useState<ReportType[]>([]);
   const [selectedTypeId, setSelectedTypeId] = useState('');
   const [selectedTaskId, setSelectedTaskId] = useState('');
@@ -163,6 +267,19 @@ export default function Reports() {
   };
 
   useEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    const reportId = searchParams.get('reportId');
+    if (reportId && reports.length > 0) {
+      const report = reports.find(r => r.id === reportId);
+      if (report) {
+        setSelectedReport(report);
+        // Clear the URL parameters
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+    }
+  }, [reports]);
+
+  useEffect(() => {
     const unsubscribeAuth = auth.onAuthStateChanged(async (authUser) => {
       if (authUser) {
         const profile = await getUserProfile(authUser.uid);
@@ -179,10 +296,17 @@ export default function Reports() {
 
           const unsubTypes = subscribeToReportTypes(profile.orgId, setReportTypes);
 
+          // Fetch team members for author filtering
+          const q = query(collection(db, 'users'), where('orgId', '==', profile.orgId), where('status', '==', 'active'));
+          const unsubTeam = onSnapshot(q, (snapshot) => {
+            setTeamMembers(snapshot.docs.map(doc => doc.data() as UserProfile));
+          });
+
           return () => {
             unsubReports();
             unsubTasks();
             unsubTypes();
+            unsubTeam();
           };
         }
       }
@@ -336,7 +460,7 @@ export default function Reports() {
     if (!selectedReport || !user) return;
     setIsReviewing(true);
     try {
-      await reviewReport(selectedReport.id, status, reviewComment, user.uid, user.displayName);
+      await reviewReport(selectedReport.id, status, reviewComment, user.uid, user.displayName, reviewRating > 0 ? reviewRating : undefined);
       
       // Notify author
       await sendNotification(
@@ -348,6 +472,7 @@ export default function Reports() {
 
       setSelectedReport(null);
       setReviewComment('');
+      setReviewRating(0);
     } catch (error) {
       console.error('Error reviewing report:', error);
     } finally {
@@ -359,7 +484,9 @@ export default function Reports() {
     const matchesSearch = r.title.toLowerCase().includes(search.toLowerCase()) || 
                          r.description.toLowerCase().includes(search.toLowerCase());
     const matchesStatus = filterStatus === 'all' || r.status === filterStatus;
-    return matchesSearch && matchesStatus;
+    const matchesType = filterType === 'all' || r.typeId === filterType;
+    const matchesAuthor = filterAuthor === 'all' || r.authorId === filterAuthor;
+    return matchesSearch && matchesStatus && matchesType && matchesAuthor;
   });
 
   const handleRefresh = () => {
@@ -369,6 +496,90 @@ export default function Reports() {
 
   const handleExport = () => {
     window.print();
+  };
+
+  const handleDownloadPDF = (report: Report) => {
+    // For a real PDF generation, we'd use a library like jsPDF or a server-side route.
+    // Here we'll use a simplified approach that triggers a print of just the report details.
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+
+    const authorName = teamMembers.find(m => m.uid === report.authorId)?.displayName || 'Unknown';
+    const typeName = reportTypes.find(t => t.id === report.typeId)?.name || 'General';
+
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Report: ${report.title}</title>
+          <style>
+            body { font-family: sans-serif; padding: 40px; color: #1e293b; }
+            .header { border-bottom: 2px solid #e2e8f0; padding-bottom: 20px; margin-bottom: 30px; }
+            .title { font-size: 24px; font-weight: bold; margin: 0; }
+            .meta { font-size: 14px; color: #64748b; margin-top: 8px; }
+            .section { margin-bottom: 24px; }
+            .section-title { font-size: 16px; font-weight: bold; margin-bottom: 8px; color: #475569; }
+            .content { font-size: 14px; line-height: 1.6; }
+            .status { display: inline-block; padding: 4px 12px; border-radius: 9999px; font-size: 12px; font-weight: bold; text-transform: uppercase; }
+            .status-submitted { background: #dbeafe; color: #1d4ed8; }
+            .status-approved { background: #dcfce7; color: #15803d; }
+            .status-rejected { background: #fee2e2; color: #b91c1c; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1 class="title">${report.title}</h1>
+            <div class="meta">
+              Author: ${authorName} | Type: ${typeName} | Date: ${format(new Date(report.createdAt), 'PPPP')}
+            </div>
+          </div>
+          <div class="section">
+            <div class="section-title">Status</div>
+            <div class="status status-${report.status}">${report.status.replace('_', ' ')}</div>
+          </div>
+          <div class="section">
+            <div class="section-title">Description</div>
+            <div class="content">${report.description}</div>
+          </div>
+          ${report.challenges ? `
+          <div class="section">
+            <div class="section-title">Challenges</div>
+            <div class="content">${report.challenges}</div>
+          </div>` : ''}
+          ${report.pendingTasks ? `
+          <div class="section">
+            <div class="section-title">Next Steps</div>
+            <div class="content">${report.pendingTasks}</div>
+          </div>` : ''}
+          ${report.attachments.length > 0 ? `
+          <div class="section">
+            <div class="section-title">Attachments</div>
+            <div class="content">
+              <ul>
+                ${report.attachments.map(a => `<li>${a.name}</li>`).join('')}
+              </ul>
+            </div>
+          </div>` : ''}
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.print();
+  };
+
+  const handleManualSummarize = async (report: Report) => {
+    if (isGeneratingSummary) return;
+    setIsGeneratingSummary(true);
+    try {
+      const summary = await summarizeReport(report);
+      const analysis = await analyzeReport(report);
+      await updateReportAI(report.id, summary, analysis);
+      setSelectedReport({ ...report, aiSummary: summary, aiAnalysis: analysis });
+      setIsSummaryCollapsed(false);
+    } catch (error) {
+      console.error("Manual summarization error:", error);
+    } finally {
+      setIsGeneratingSummary(false);
+    }
   };
 
   const handleExportCSV = () => {
@@ -398,7 +609,7 @@ export default function Reports() {
     <div className="space-y-6 print:space-y-4">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 print:hidden">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">Reports</h1>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">{t('Reports')}</h1>
           <p className="text-slate-500 dark:text-slate-400">Manage and track your evidence-based reports.</p>
         </div>
         <div className="flex items-center gap-3">
@@ -423,7 +634,7 @@ export default function Reports() {
             className="flex items-center justify-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 dark:shadow-none"
           >
             <Plus className="w-5 h-5" />
-            Create Report
+            {t('New Report')}
           </button>
           <button 
             onClick={handleExportCSV}
@@ -454,18 +665,42 @@ export default function Reports() {
             className="w-full pl-10 pr-4 py-2 bg-slate-50 dark:bg-slate-800 border-transparent focus:bg-white dark:focus:bg-slate-700 focus:border-indigo-500 rounded-xl text-sm transition-all outline-none text-slate-900 dark:text-white"
           />
         </div>
-        <div className="flex items-center gap-2">
-          <Filter className="w-4 h-4 text-slate-400" />
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2">
+            <Filter className="w-4 h-4 text-slate-400" />
+            <select 
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+              className="bg-slate-50 dark:bg-slate-800 border-none rounded-xl px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 outline-none focus:ring-2 focus:ring-indigo-200 dark:focus:ring-indigo-900"
+            >
+              <option value="all">All Status</option>
+              <option value="submitted">Submitted</option>
+              <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
+              <option value="revision_requested">Revision Requested</option>
+            </select>
+          </div>
+
           <select 
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
+            value={filterType}
+            onChange={(e) => setFilterType(e.target.value)}
             className="bg-slate-50 dark:bg-slate-800 border-none rounded-xl px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 outline-none focus:ring-2 focus:ring-indigo-200 dark:focus:ring-indigo-900"
           >
-            <option value="all">All Status</option>
-            <option value="submitted">Submitted</option>
-            <option value="approved">Approved</option>
-            <option value="rejected">Rejected</option>
-            <option value="revision_requested">Revision Requested</option>
+            <option value="all">All Types</option>
+            {reportTypes.map(type => (
+              <option key={type.id} value={type.id}>{type.name}</option>
+            ))}
+          </select>
+
+          <select 
+            value={filterAuthor}
+            onChange={(e) => setFilterAuthor(e.target.value)}
+            className="bg-slate-50 dark:bg-slate-800 border-none rounded-xl px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 outline-none focus:ring-2 focus:ring-indigo-200 dark:focus:ring-indigo-900"
+          >
+            <option value="all">All Authors</option>
+            {teamMembers.map(member => (
+              <option key={member.uid} value={member.uid}>{member.displayName}</option>
+            ))}
           </select>
         </div>
       </div>
@@ -522,12 +757,22 @@ export default function Reports() {
                   <p className="text-slate-500 dark:text-slate-400">{format(new Date(report.createdAt), 'MMM d, yyyy')}</p>
                 </div>
               </div>
-              <button 
-                onClick={() => setSelectedReport(report)}
-                className="p-2 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-white dark:hover:bg-slate-700 rounded-lg transition-all"
-              >
-                <Eye className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => setSelectedReport(report)}
+                  className="p-2 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-white dark:hover:bg-slate-700 rounded-lg transition-all"
+                  title="View Details"
+                >
+                  <Eye className="w-5 h-5" />
+                </button>
+                <button 
+                  onClick={(e) => { e.stopPropagation(); handleDownloadPDF(report); }}
+                  className="p-2 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-white dark:hover:bg-slate-700 rounded-lg transition-all"
+                  title="Download PDF"
+                >
+                  <Download className="w-5 h-5" />
+                </button>
+              </div>
             </div>
           </div>
         ))}
@@ -628,6 +873,43 @@ export default function Reports() {
                 <>
                   {submissionStep === 1 && (
                     <div className="space-y-6 animate-in slide-in-from-right-4 duration-300">
+                      
+                      {/* AI Voice Drafting */}
+                      <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-xl border border-indigo-100 dark:border-indigo-900/30 flex flex-col sm:flex-row items-center justify-between gap-4">
+                        <div>
+                          <h4 className="text-sm font-bold text-indigo-900 dark:text-indigo-300 flex items-center gap-2">
+                            <Sparkles className="w-4 h-4" />
+                            Draft with AI Voice
+                          </h4>
+                          <p className="text-xs text-indigo-700 dark:text-indigo-400 mt-1">
+                            Speak naturally about your report. AI will automatically structure it into title, description, challenges, and tasks.
+                          </p>
+                          {isListening === 'ai_draft' && (
+                            <p className="text-xs text-indigo-600 dark:text-indigo-400 mt-2 animate-pulse">
+                              Listening... {aiDraftTranscript}
+                            </p>
+                          )}
+                        </div>
+                        <div className="shrink-0">
+                          {isDraftingWithAI ? (
+                            <button type="button" disabled className="flex items-center gap-2 px-4 py-2 bg-indigo-200 dark:bg-indigo-800 text-indigo-700 dark:text-indigo-300 rounded-lg text-sm font-bold">
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              Processing...
+                            </button>
+                          ) : isListening === 'ai_draft' ? (
+                            <button type="button" onClick={stopAIDrafting} className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-lg text-sm font-bold hover:bg-red-600 transition-all shadow-md">
+                              <MicOff className="w-4 h-4" />
+                              Stop & Process
+                            </button>
+                          ) : (
+                            <button type="button" onClick={startAIDrafting} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold hover:bg-indigo-700 transition-all shadow-md">
+                              <Mic className="w-4 h-4" />
+                              Start Speaking
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
                           <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">Report Type</label>
@@ -879,29 +1161,73 @@ export default function Reports() {
               {activeTab === 'details' ? (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                   <div className="lg:col-span-2 space-y-8">
-                    {/* AI Summary */}
-                    {selectedReport.aiSummary && (
-                      <div className="p-6 bg-indigo-50 dark:bg-indigo-900/20 rounded-3xl border border-indigo-100 dark:border-indigo-900/30 relative overflow-hidden">
-                        <div className="absolute top-0 right-0 p-4 flex gap-2">
-                          <button
-                            onClick={() => handleListen(selectedReport.aiSummary!)}
-                            disabled={isSpeaking}
-                            className="p-2 bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 rounded-xl shadow-sm hover:scale-110 transition-all disabled:opacity-50"
-                            title="Listen to Summary"
+                    <button
+                      onClick={() => {
+                        const searchParams = new URLSearchParams();
+                        searchParams.set('title', `Action from: ${selectedReport.title}`);
+                        searchParams.set('description', `Based on report insights: ${selectedReport.aiSummary || selectedReport.description}`);
+                        window.location.href = `/tasks?${searchParams.toString()}`;
+                      }}
+                      className="w-full flex items-center justify-center gap-2 py-4 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-2xl font-bold hover:bg-slate-800 dark:hover:bg-slate-100 transition-all shadow-xl"
+                    >
+                      <Plus className="w-5 h-5" />
+                      Create Task from Report Insights
+                    </button>
+
+                    {/* AI Summary Section */}
+                    <div className="space-y-4">
+                      {!selectedReport.aiSummary ? (
+                        <button
+                          onClick={() => handleManualSummarize(selectedReport)}
+                          disabled={isGeneratingSummary}
+                          className="w-full flex items-center justify-center gap-2 py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 dark:shadow-none disabled:opacity-50"
+                        >
+                          {isGeneratingSummary ? (
+                            <>
+                              <Loader2 className="w-5 h-5 animate-spin" />
+                              Generating AI Summary...
+                            </>
+                          ) : (
+                            <>
+                              <Sparkles className="w-5 h-5" />
+                              View AI Summary
+                            </>
+                          )}
+                        </button>
+                      ) : (
+                        <div className="bg-indigo-50 dark:bg-indigo-900/20 rounded-3xl border border-indigo-100 dark:border-indigo-900/30 overflow-hidden">
+                          <button 
+                            onClick={() => setIsSummaryCollapsed(!isSummaryCollapsed)}
+                            className="w-full p-6 flex items-center justify-between hover:bg-indigo-100/50 dark:hover:bg-indigo-900/40 transition-all"
                           >
-                            {isSpeaking ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mic className="w-4 h-4" />}
+                            <div className="flex items-center gap-3">
+                              <div className="p-2 bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 rounded-xl shadow-sm">
+                                <Sparkles className="w-4 h-4" />
+                              </div>
+                              <h4 className="text-sm font-bold text-indigo-900 dark:text-indigo-100">AI Executive Summary</h4>
+                            </div>
+                            <ChevronRight className={cn("w-5 h-5 text-indigo-400 transition-transform", !isSummaryCollapsed && "rotate-90")} />
                           </button>
-                          <Sparkles className="w-6 h-6 text-indigo-200 dark:text-indigo-900/40" />
+                          
+                          {!isSummaryCollapsed && (
+                            <div className="px-6 pb-6 animate-in slide-in-from-top-2 duration-200">
+                              <div className="p-4 bg-white dark:bg-slate-800/50 rounded-2xl border border-indigo-100 dark:border-indigo-900/30 relative">
+                                <p className="text-sm text-indigo-900 dark:text-indigo-100 leading-relaxed font-medium italic">
+                                  "{selectedReport.aiSummary}"
+                                </p>
+                                <button
+                                  onClick={() => handleListen(selectedReport.aiSummary!)}
+                                  disabled={isSpeaking}
+                                  className="absolute bottom-4 right-4 p-2 bg-indigo-600 text-white rounded-xl shadow-lg hover:scale-110 transition-all disabled:opacity-50"
+                                >
+                                  {isSpeaking ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mic className="w-4 h-4" />}
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </div>
-                        <h4 className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider mb-3 flex items-center gap-2">
-                          <Sparkles className="w-4 h-4" />
-                          AI Executive Summary
-                        </h4>
-                        <p className="text-sm text-indigo-900 dark:text-indigo-100 leading-relaxed font-medium italic">
-                          "{selectedReport.aiSummary}"
-                        </p>
-                      </div>
-                    )}
+                      )}
+                    </div>
 
                     {selectedReport.taskId && (
                       <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700 flex items-center justify-between">
@@ -1070,6 +1396,20 @@ export default function Reports() {
                           {selectedReport.status.replace('_', ' ')}
                         </span>
 
+                        {selectedReport.rating && (
+                          <div className="flex items-center justify-center gap-1 mt-2 bg-slate-50 dark:bg-slate-800/50 p-2 rounded-xl border border-slate-100 dark:border-slate-800">
+                            {[1, 2, 3, 4, 5].map((star) => (
+                              <Star 
+                                key={star} 
+                                className={cn(
+                                  "w-4 h-4", 
+                                  selectedReport.rating! >= star ? "text-amber-400 fill-amber-400" : "text-slate-300 dark:text-slate-600"
+                                )} 
+                              />
+                            ))}
+                          </div>
+                        )}
+
                         {/* Edit Action for Author when Revision Requested */}
                         {user?.uid === selectedReport.authorId && 
                          selectedReport.status === 'revision_requested' && (
@@ -1090,6 +1430,24 @@ export default function Reports() {
                         {['SUPERVISOR', 'MANAGER', 'ORG_ADMIN', 'SUPER_ADMIN'].includes(user?.role || '') && 
                          selectedReport.status === 'submitted' && (
                           <div className="mt-4 space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                            <div className="flex items-center gap-2 mb-2">
+                              <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Performance Rating:</span>
+                              <div className="flex items-center gap-1">
+                                {[1, 2, 3, 4, 5].map((star) => (
+                                  <button
+                                    key={star}
+                                    type="button"
+                                    onClick={() => setReviewRating(star)}
+                                    className={cn(
+                                      "p-1 rounded-full transition-all",
+                                      reviewRating >= star ? "text-amber-400" : "text-slate-300 dark:text-slate-600 hover:text-amber-200"
+                                    )}
+                                  >
+                                    <Star className="w-5 h-5 fill-current" />
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
                             <textarea
                               placeholder="Add a review comment..."
                               value={reviewComment}

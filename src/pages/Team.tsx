@@ -11,11 +11,13 @@ import {
   Mail,
   ChevronRight,
   ArrowUpRight,
-  Network
+  Network,
+  Star,
+  MessageSquare
 } from 'lucide-react';
 import { auth, db } from '../firebase';
-import { collection, query, where, onSnapshot, updateDoc, doc } from 'firebase/firestore';
-import { getUserProfile, logAudit, sendNotification } from '../services/firebaseService';
+import { collection, query, where, onSnapshot, updateDoc, doc, orderBy, limit } from 'firebase/firestore';
+import { getUserProfile, logAudit, sendNotification, createFeedback } from '../services/firebaseService';
 import { UserProfile } from '../types';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -27,11 +29,32 @@ function cn(...inputs: ClassValue[]) {
 export default function Team() {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [teamMembers, setTeamMembers] = useState<UserProfile[]>([]);
+  const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [viewMode, setViewMode] = useState<'list' | 'hierarchy'>('list');
   const [selectedMember, setSelectedMember] = useState<UserProfile | null>(null);
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
+  const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
+  const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
+  const [feedbackText, setFeedbackText] = useState('');
+  const [feedbackRating, setFeedbackRating] = useState(5);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState<UserProfile['role']>('WORKER');
+  const [copySuccess, setCopySuccess] = useState(false);
+
+  useEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    const userId = searchParams.get('userId');
+    if (userId && teamMembers.length > 0) {
+      const member = teamMembers.find(m => m.uid === userId);
+      if (member) {
+        setSelectedMember(member);
+        // Clear the URL parameters
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+    }
+  }, [teamMembers]);
 
   useEffect(() => {
     const unsubscribeAuth = auth.onAuthStateChanged(async (authUser) => {
@@ -46,12 +69,39 @@ export default function Team() {
             setTeamMembers(members);
             setLoading(false);
           });
-          return () => unsubTeam();
+
+          // Subscribe to recent audit logs
+          const auditQ = query(
+            collection(db, 'auditLogs'), 
+            where('orgId', '==', profile.orgId),
+            orderBy('timestamp', 'desc'),
+            limit(10)
+          );
+          const unsubAudit = onSnapshot(auditQ, (snapshot) => {
+            setAuditLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+          });
+
+          return () => {
+            unsubTeam();
+            unsubAudit();
+          };
         }
       }
     });
     return () => unsubscribeAuth();
   }, []);
+
+  const handleInvite = (e: React.FormEvent) => {
+    e.preventDefault();
+    const inviteLink = `${window.location.origin}/signup?orgCode=${user?.orgId}&role=${inviteRole}`;
+    navigator.clipboard.writeText(inviteLink);
+    setCopySuccess(true);
+    setTimeout(() => {
+      setCopySuccess(false);
+      setIsInviteModalOpen(false);
+      setInviteEmail('');
+    }, 2000);
+  };
 
   const handleApproveUser = async (member: UserProfile) => {
     if (!user) return;
@@ -75,11 +125,41 @@ export default function Team() {
     }
   };
 
-  const filteredMembers = teamMembers.filter(m => 
-    m.displayName.toLowerCase().includes(search.toLowerCase()) || 
-    m.email.toLowerCase().includes(search.toLowerCase()) ||
-    m.role.toLowerCase().includes(search.toLowerCase())
-  );
+  const handleDeactivateUser = async (member: UserProfile) => {
+    if (!user || user.role !== 'ORG_ADMIN') return;
+    if (member.uid === user.uid) return; // Cannot deactivate self
+    try {
+      await updateDoc(doc(db, 'users', member.uid), { status: 'inactive' });
+      await logAudit('user:deactivated', member.uid, user.orgId, { email: member.email });
+      await sendNotification(member.uid, 'Account Deactivated', 'Your account has been deactivated by an administrator.', 'account_deactivated');
+    } catch (error) {
+      console.error('Error deactivating user:', error);
+    }
+  };
+
+  const handleReactivateUser = async (member: UserProfile) => {
+    if (!user || user.role !== 'ORG_ADMIN') return;
+    try {
+      await updateDoc(doc(db, 'users', member.uid), { status: 'active' });
+      await logAudit('user:reactivated', member.uid, user.orgId, { email: member.email });
+      await sendNotification(member.uid, 'Account Reactivated', 'Your account has been reactivated by an administrator.', 'account_reactivated');
+    } catch (error) {
+      console.error('Error reactivating user:', error);
+    }
+  };
+
+  const [showActiveOnly, setShowActiveOnly] = useState(false);
+
+  const filteredMembers = teamMembers.filter(m => {
+    const matchesSearch = m.displayName.toLowerCase().includes(search.toLowerCase()) || 
+      m.email.toLowerCase().includes(search.toLowerCase()) ||
+      m.role.toLowerCase().includes(search.toLowerCase());
+    
+    if (showActiveOnly) {
+      return matchesSearch && m.status === 'active';
+    }
+    return matchesSearch;
+  });
 
   // Recursive component for hierarchy
   const HierarchyNode = ({ member, allMembers, depth = 0 }: { member: UserProfile, allMembers: UserProfile[], depth?: number }) => {
@@ -99,10 +179,14 @@ export default function Team() {
           "bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300"
         )}>
           <div className={cn(
-            "w-10 h-10 rounded-xl flex items-center justify-center font-bold shrink-0",
+            "w-10 h-10 rounded-xl flex items-center justify-center font-bold shrink-0 overflow-hidden",
             member.role === 'ORG_ADMIN' ? "bg-white/20 text-white" : "bg-indigo-100 dark:bg-indigo-900 text-indigo-600 dark:text-indigo-400"
           )}>
-            {member.displayName.charAt(0)}
+            {member.photoURL ? (
+              <img src={member.photoURL} alt={member.displayName} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+            ) : (
+              member.displayName.charAt(0)
+            )}
           </div>
           <div>
             <p className="text-sm font-bold truncate max-w-[150px]">{member.displayName}</p>
@@ -153,7 +237,10 @@ export default function Team() {
             <Network className="w-4 h-4" />
             {viewMode === 'list' ? 'View Hierarchy' : 'View List'}
           </button>
-          <button className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 dark:shadow-none">
+          <button 
+            onClick={() => setIsInviteModalOpen(true)}
+            className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 dark:shadow-none"
+          >
             <UserPlus className="w-4 h-4" />
             Invite Member
           </button>
@@ -173,7 +260,16 @@ export default function Team() {
               className="w-full pl-10 pr-4 py-2 bg-slate-50 dark:bg-slate-800 border-transparent focus:bg-white dark:focus:bg-slate-700 focus:border-indigo-500 rounded-xl text-sm transition-all outline-none text-slate-900 dark:text-white"
             />
           </div>
-          <button className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-all">
+          <button 
+            onClick={() => setShowActiveOnly(!showActiveOnly)}
+            className={cn(
+              "p-2 rounded-lg transition-all",
+              showActiveOnly 
+                ? "bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400" 
+                : "text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+            )}
+            title={showActiveOnly ? "Showing Active Only" : "Show All Members"}
+          >
             <Filter className="w-5 h-5" />
           </button>
         </div>
@@ -205,8 +301,12 @@ export default function Team() {
                   <tr key={member.uid} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group">
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300 rounded-full flex items-center justify-center font-bold">
-                          {member.displayName.charAt(0)}
+                        <div className="w-10 h-10 bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300 rounded-full flex items-center justify-center font-bold overflow-hidden">
+                          {member.photoURL ? (
+                            <img src={member.photoURL} alt={member.displayName} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                          ) : (
+                            member.displayName.charAt(0)
+                          )}
                         </div>
                         <div>
                           <p className="text-sm font-bold text-slate-900 dark:text-white">{member.displayName}</p>
@@ -259,7 +359,40 @@ export default function Team() {
                             <Network className="w-5 h-5" />
                           </button>
                         )}
-                        <button className="p-2 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-all">
+                        {user && ['SUPERVISOR', 'MANAGER', 'HR', 'ORG_ADMIN', 'SUPER_ADMIN'].includes(user.role) && member.uid !== user.uid && (
+                          <button 
+                            onClick={() => { setSelectedMember(member); setIsFeedbackModalOpen(true); }}
+                            className="p-2 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/30 rounded-lg transition-all"
+                            title="Give Feedback"
+                          >
+                            <MessageSquare className="w-5 h-5" />
+                          </button>
+                        )}
+                        {user?.role === 'ORG_ADMIN' && member.uid !== user.uid && (
+                          <>
+                            {member.status === 'active' ? (
+                              <button 
+                                onClick={() => handleDeactivateUser(member)}
+                                className="p-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-all"
+                                title="Deactivate User"
+                              >
+                                <UserX className="w-5 h-5" />
+                              </button>
+                            ) : member.status === 'inactive' ? (
+                              <button 
+                                onClick={() => handleReactivateUser(member)}
+                                className="p-2 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-lg transition-all"
+                                title="Reactivate User"
+                              >
+                                <UserCheck className="w-5 h-5" />
+                              </button>
+                            ) : null}
+                          </>
+                        )}
+                        <button 
+                          onClick={() => setSelectedMember(member)}
+                          className="p-2 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-all"
+                        >
                           <MoreVertical className="w-5 h-5" />
                         </button>
                       </div>
@@ -310,19 +443,28 @@ export default function Team() {
             <Users className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
             Recent Activity
           </h3>
-          <div className="space-y-4">
-            <div className="flex items-start gap-3">
-              <div className="w-2 h-2 bg-indigo-600 rounded-full mt-2" />
-              <p className="text-sm text-slate-600 dark:text-slate-400">
-                <span className="font-bold text-slate-900 dark:text-white">John Doe</span> joined the organization.
-              </p>
-            </div>
-            <div className="flex items-start gap-3">
-              <div className="w-2 h-2 bg-emerald-500 rounded-full mt-2" />
-              <p className="text-sm text-slate-600 dark:text-slate-400">
-                <span className="font-bold text-slate-900 dark:text-white">Jane Smith</span> was promoted to Manager.
-              </p>
-            </div>
+          <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2">
+            {auditLogs.length > 0 ? auditLogs.map((log) => (
+              <div key={log.id} className="flex items-start gap-3">
+                <div className={cn(
+                  "w-2 h-2 rounded-full mt-2 shrink-0",
+                  log.action.includes('approved') ? "bg-emerald-500" :
+                  log.action.includes('created') ? "bg-indigo-600" :
+                  "bg-slate-400"
+                )} />
+                <p className="text-sm text-slate-600 dark:text-slate-400">
+                  <span className="font-bold text-slate-900 dark:text-white">
+                    {teamMembers.find(m => m.uid === log.actorId)?.displayName || 'System'}
+                  </span>
+                  {' '}{log.action.replace(':', ' ')}{' '}
+                  <span className="font-bold text-slate-900 dark:text-white">
+                    {teamMembers.find(m => m.uid === log.targetId)?.displayName || log.targetId.slice(0, 8)}
+                  </span>
+                </p>
+              </div>
+            )) : (
+              <p className="text-sm text-slate-400 italic">No recent activity</p>
+            )}
           </div>
         </div>
       </div>
@@ -344,6 +486,23 @@ export default function Team() {
                   Select a supervisor for <span className="font-bold text-slate-900 dark:text-white">{selectedMember.displayName}</span>.
                 </p>
                 <div className="space-y-2 max-h-[300px] sm:max-h-[400px] overflow-y-auto pr-2">
+                  {selectedMember.supervisorId && (
+                    <button
+                      onClick={() => {
+                        handleAssignSupervisor(selectedMember, '');
+                        setIsAssignModalOpen(false);
+                      }}
+                      className="w-full flex items-center gap-4 p-3 rounded-xl border border-red-100 dark:border-red-900/30 transition-all hover:bg-red-50 dark:hover:bg-red-900/20 text-red-600 dark:text-red-400"
+                    >
+                      <div className="w-10 h-10 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center">
+                        <UserX className="w-5 h-5" />
+                      </div>
+                      <div className="text-left">
+                        <p className="text-sm font-bold">Clear Supervisor</p>
+                        <p className="text-xs opacity-70">Remove current supervisor assignment</p>
+                      </div>
+                    </button>
+                  )}
                   {teamMembers
                     .filter(m => 
                       m.uid !== selectedMember.uid && 
@@ -395,6 +554,155 @@ export default function Team() {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+      {/* Invite Member Modal */}
+      {isInviteModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center sm:p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white dark:bg-slate-900 w-full h-full sm:h-auto sm:max-w-md sm:rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200 flex flex-col">
+            <div className="p-4 sm:p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-indigo-600 text-white shrink-0">
+              <h2 className="text-lg sm:text-xl font-bold">Invite Team Member</h2>
+              <button onClick={() => setIsInviteModalOpen(false)} className="p-2 hover:bg-white/10 rounded-lg transition-colors">
+                <UserX className="w-6 h-6" />
+              </button>
+            </div>
+            
+            <form onSubmit={handleInvite} className="p-4 sm:p-6 space-y-6 overflow-y-auto flex-1">
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                Select a role and copy the invite link to share with your team member.
+              </p>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
+                    Member Role
+                  </label>
+                  <select
+                    value={inviteRole}
+                    onChange={(e) => setInviteRole(e.target.value as any)}
+                    className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none text-slate-900 dark:text-white"
+                  >
+                    <option value="WORKER">Worker</option>
+                    <option value="SUPERVISOR">Supervisor</option>
+                    <option value="MANAGER">Manager</option>
+                    <option value="EXECUTIVE">Executive</option>
+                    <option value="ORG_ADMIN">Admin</option>
+                  </select>
+                </div>
+
+                <div className="p-4 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl border border-indigo-100 dark:border-indigo-800">
+                  <p className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+                    <Mail className="w-3 h-3" />
+                    Invite Link
+                  </p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 break-all bg-white dark:bg-slate-900 p-2 rounded border border-indigo-100 dark:border-indigo-800">
+                    {`${window.location.origin}/signup?orgCode=${user?.orgId}&role=${inviteRole}`}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className={cn(
+                  "w-full py-3 rounded-xl font-bold text-sm transition-all flex items-center justify-center gap-2",
+                  copySuccess 
+                    ? "bg-emerald-500 text-white" 
+                    : "bg-indigo-600 text-white hover:bg-indigo-700"
+                )}
+              >
+                {copySuccess ? (
+                  <>
+                    <UserCheck className="w-5 h-5" />
+                    Link Copied!
+                  </>
+                ) : (
+                  <>
+                    <UserPlus className="w-5 h-5" />
+                    Copy Invite Link
+                  </>
+                )}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* Feedback Modal */}
+      {isFeedbackModalOpen && selectedMember && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center sm:p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white dark:bg-slate-900 w-full h-full sm:h-auto sm:max-w-md sm:rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200 flex flex-col">
+            <div className="p-4 sm:p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-amber-600 text-white shrink-0">
+              <h2 className="text-lg sm:text-xl font-bold">Give Feedback</h2>
+              <button onClick={() => setIsFeedbackModalOpen(false)} className="p-2 hover:bg-white/10 rounded-lg transition-colors">
+                <UserX className="w-6 h-6" />
+              </button>
+            </div>
+            
+            <form onSubmit={async (e) => {
+              e.preventDefault();
+              if (!user || !feedbackText.trim()) return;
+              await createFeedback({
+                recipientId: selectedMember.uid,
+                authorId: user.uid,
+                authorName: user.displayName,
+                orgId: user.orgId,
+                text: feedbackText,
+                rating: feedbackRating
+              });
+              setIsFeedbackModalOpen(false);
+              setFeedbackText('');
+              setFeedbackRating(5);
+              alert('Feedback submitted successfully!');
+            }} className="p-4 sm:p-6 space-y-6 overflow-y-auto flex-1">
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                Provide micro-appraisal and feedback for <span className="font-bold text-slate-900 dark:text-white">{selectedMember.displayName}</span>.
+              </p>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
+                    Rating
+                  </label>
+                  <div className="flex items-center gap-2">
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <button
+                        key={star}
+                        type="button"
+                        onClick={() => setFeedbackRating(star)}
+                        className={cn(
+                          "p-2 rounded-xl transition-all",
+                          feedbackRating >= star 
+                            ? "text-amber-500 bg-amber-50 dark:bg-amber-900/30" 
+                            : "text-slate-300 dark:text-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800"
+                        )}
+                      >
+                        <Star className={cn("w-6 h-6", feedbackRating >= star && "fill-current")} />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
+                    Feedback Details
+                  </label>
+                  <textarea
+                    value={feedbackText}
+                    onChange={(e) => setFeedbackText(e.target.value)}
+                    placeholder="Describe their performance, achievements, or areas for improvement..."
+                    className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none text-slate-900 dark:text-white min-h-[120px] resize-none"
+                    required
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full py-3 rounded-xl font-bold text-sm transition-all bg-amber-600 text-white hover:bg-amber-700"
+              >
+                Submit Feedback
+              </button>
+            </form>
           </div>
         </div>
       )}

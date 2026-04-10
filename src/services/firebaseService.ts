@@ -21,9 +21,8 @@ import {
   createUserWithEmailAndPassword,
   updateProfile
 } from 'firebase/auth';
-import { db, auth, storage } from '../firebase';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { UserProfile, Organization, Report, Task, Notification, AuditLog, Comment, Webhook, ReportHistory, ReportType, PublicContent } from '../types';
+import { db, auth } from '../firebase';
+import { UserProfile, Organization, Report, Task, Notification, AuditLog, Comment, Webhook, ReportHistory, ReportType, PublicContent, WorkflowRule, Feedback } from '../types';
 
 enum OperationType {
   CREATE = 'create',
@@ -152,6 +151,26 @@ export const getOrganizationByCode = async (code: string): Promise<Organization 
   }
 };
 
+export const getOrganizationById = async (orgId: string): Promise<Organization | null> => {
+  try {
+    const docRef = doc(db, 'organizations', orgId);
+    const docSnap = await getDoc(docRef);
+    return docSnap.exists() ? { id: docSnap.id, ...docSnap.data() } as Organization : null;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.GET, `organizations/${orgId}`);
+    return null;
+  }
+};
+
+export const updateOrganization = async (orgId: string, updates: Partial<Organization>) => {
+  try {
+    const orgRef = doc(db, 'organizations', orgId);
+    await updateDoc(orgRef, updates);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `organizations/${orgId}`);
+  }
+};
+
 // --- Reports ---
 export const submitReport = async (report: Omit<Report, 'id'>) => {
   try {
@@ -160,6 +179,7 @@ export const submitReport = async (report: Omit<Report, 'id'>) => {
       createdAt: new Date().toISOString()
     });
     await logAudit('report:submitted', reportRef.id, report.orgId, { title: report.title });
+    await evaluateWorkflows(report.orgId, 'report_submitted', { id: reportRef.id, ...report });
     return reportRef.id;
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, 'reports');
@@ -199,13 +219,14 @@ export const subscribeToReportTypes = (orgId: string, callback: (types: ReportTy
 };
 
 // --- Tasks ---
-export const createTask = async (task: Omit<Task, 'id'>) => {
+export const createTask = async (task: Omit<Task, 'id' | 'createdAt'>) => {
   try {
     const taskRef = await addDoc(collection(db, 'tasks'), {
       ...task,
       createdAt: new Date().toISOString()
     });
     await logAudit('task:created', taskRef.id, task.orgId, { title: task.title });
+    await evaluateWorkflows(task.orgId, 'task_created', { id: taskRef.id, ...task });
     return taskRef.id;
   } catch (error) {
     handleFirestoreError(error, OperationType.CREATE, 'tasks');
@@ -227,9 +248,25 @@ export const subscribeToTasks = (orgId: string, callback: (tasks: Task[]) => voi
 
 // --- Files ---
 export const uploadFile = async (file: File, path: string) => {
-  const storageRef = ref(storage, path);
-  await uploadBytes(storageRef, file);
-  return await getDownloadURL(storageRef);
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    const response = await fetch('/api/upload', {
+      method: 'POST',
+      body: formData,
+    });
+    
+    if (!response.ok) {
+      throw new Error('Failed to upload file to local server');
+    }
+    
+    const data = await response.json();
+    return data.url;
+  } catch (error) {
+    console.error("Local upload failed:", error);
+    throw error;
+  }
 };
 
 // --- Audit & Notifications ---
@@ -285,7 +322,7 @@ export const updateReportAI = async (reportId: string, aiSummary: string, aiAnal
   }
 };
 
-export const reviewReport = async (reportId: string, status: Report['status'], reviewComment: string, reviewerId: string, reviewerName: string) => {
+export const reviewReport = async (reportId: string, status: Report['status'], reviewComment: string, reviewerId: string, reviewerName: string, rating?: number) => {
   try {
     const reportRef = doc(db, 'reports', reportId);
     const reportSnap = await getDoc(reportRef);
@@ -299,19 +336,29 @@ export const reviewReport = async (reportId: string, status: Report['status'], r
       updatedBy: reviewerId,
       updatedByName: reviewerName,
       action: `status_change:${status}`,
-      details: reviewComment
+      details: reviewComment + (rating ? ` (Rating: ${rating}/5)` : '')
     };
 
-    await updateDoc(reportRef, {
+    const updates: Partial<Report> = {
       status,
       reviewComment,
       reviewedBy: reviewerId,
       reviewedAt: new Date().toISOString(),
       history: [...history, newHistoryItem]
-    });
+    };
     
-    await logAudit(`report:${status}`, reportId, reportData.orgId, { reviewComment });
-    await triggerWebhooks(reportData.orgId, `report_${status}`, { id: reportId, ...reportData, status });
+    if (rating !== undefined) {
+      updates.rating = rating;
+    }
+
+    await updateDoc(reportRef, updates);
+    
+    await logAudit(`report:${status}`, reportId, reportData.orgId, { reviewComment, rating });
+    await triggerWebhooks(reportData.orgId, `report_${status}`, { id: reportId, ...reportData, status, rating });
+    
+    if (status === 'approved' || status === 'rejected') {
+      await evaluateWorkflows(reportData.orgId, `report_${status}`, { id: reportId, ...reportData, status, rating });
+    }
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, `reports/${reportId}`);
   }
@@ -358,6 +405,9 @@ export const updateTaskStatus = async (taskId: string, status: Task['status']) =
     if (taskSnap.exists()) {
       const taskData = taskSnap.data();
       await logAudit(`task:${status}`, taskId, taskData.orgId, {});
+      if (status === 'completed') {
+        await evaluateWorkflows(taskData.orgId, 'task_completed', { id: taskId, ...taskData });
+      }
     }
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, `tasks/${taskId}`);
@@ -465,5 +515,153 @@ export const checkUpcomingDeadlines = async (orgId: string, userId: string) => {
     }
   } catch (error) {
     console.error('Error checking deadlines:', error);
+  }
+};
+
+// --- Workflow Rules ---
+
+export const getWorkflowRules = async (orgId: string): Promise<WorkflowRule[]> => {
+  try {
+    const q = query(collection(db, 'workflowRules'), where('orgId', '==', orgId));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as WorkflowRule));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.GET, 'workflowRules');
+    return [];
+  }
+};
+
+export const createWorkflowRule = async (ruleData: Omit<WorkflowRule, 'id' | 'createdAt'>): Promise<string | undefined> => {
+  try {
+    const docRef = await addDoc(collection(db, 'workflowRules'), {
+      ...ruleData,
+      createdAt: new Date().toISOString()
+    });
+    return docRef.id;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, 'workflowRules');
+  }
+};
+
+export const updateWorkflowRule = async (ruleId: string, updates: Partial<WorkflowRule>) => {
+  try {
+    const ruleRef = doc(db, 'workflowRules', ruleId);
+    await updateDoc(ruleRef, updates);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `workflowRules/${ruleId}`);
+  }
+};
+
+export const deleteWorkflowRule = async (ruleId: string) => {
+  try {
+    const ruleRef = doc(db, 'workflowRules', ruleId);
+    await deleteDoc(ruleRef);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, `workflowRules/${ruleId}`);
+  }
+};
+
+export const evaluateWorkflows = async (orgId: string, trigger: WorkflowRule['trigger'], payload: any) => {
+  try {
+    const rules = await getWorkflowRules(orgId);
+    const activeRules = rules.filter(r => r.isActive && r.trigger === trigger);
+
+    for (const rule of activeRules) {
+      let conditionsMet = true;
+      for (const condition of rule.conditions) {
+        const payloadValue = payload[condition.field];
+        switch (condition.operator) {
+          case 'equals':
+            if (payloadValue !== condition.value) conditionsMet = false;
+            break;
+          case 'not_equals':
+            if (payloadValue === condition.value) conditionsMet = false;
+            break;
+          case 'contains':
+            if (typeof payloadValue !== 'string' || !payloadValue.includes(condition.value)) conditionsMet = false;
+            break;
+          case 'greater_than':
+            if (Number(payloadValue) <= Number(condition.value)) conditionsMet = false;
+            break;
+          case 'less_than':
+            if (Number(payloadValue) >= Number(condition.value)) conditionsMet = false;
+            break;
+        }
+      }
+
+      if (conditionsMet) {
+        for (const action of rule.actions) {
+          try {
+            switch (action.type) {
+              case 'notify_user':
+                await sendNotification(
+                  action.config.target,
+                  `Workflow: ${rule.name}`,
+                  `Triggered by ${trigger}`,
+                  'workflow_alert',
+                  payload.id
+                );
+                break;
+              case 'create_task':
+                await createTask({
+                  title: `Automated Task: ${rule.name}`,
+                  description: `Triggered by ${trigger} on ${payload.id}`,
+                  assigneeIds: [action.config.target],
+                  creatorId: 'system',
+                  orgId,
+                  deadline: new Date(Date.now() + 86400000).toISOString(), // +1 day
+                  status: 'pending',
+                  priority: 'medium'
+                });
+                break;
+              case 'webhook':
+                await fetch(action.config.target, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ event: trigger, payload, rule: rule.name })
+                });
+                break;
+              case 'send_email':
+                // In a real app, this would call a cloud function to send an email
+                console.log(`Sending email to ${action.config.target} for rule ${rule.name}`);
+                break;
+              case 'require_approval':
+                // Create an approval task for the specified role or user
+                await createTask({
+                  title: `Approval Required: ${payload.title || payload.id}`,
+                  description: `Please review and approve this item. Triggered by workflow: ${rule.name}`,
+                  assigneeIds: action.config.target ? [action.config.target] : [],
+                  creatorId: 'system',
+                  orgId,
+                  deadline: new Date(Date.now() + 86400000 * 2).toISOString(), // +2 days
+                  status: 'pending',
+                  priority: 'high'
+                });
+                break;
+            }
+          } catch (actionError) {
+            console.error(`Error executing workflow action ${action.type}:`, actionError);
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Error evaluating workflows:', error);
+  }
+};
+
+// --- Feedback ---
+
+export const createFeedback = async (feedback: Omit<Feedback, 'id' | 'createdAt'>) => {
+  try {
+    const docRef = await addDoc(collection(db, 'feedback'), {
+      ...feedback,
+      createdAt: new Date().toISOString()
+    });
+    await logAudit('feedback:created', docRef.id, feedback.orgId, { recipientId: feedback.recipientId, rating: feedback.rating });
+    await sendNotification(feedback.recipientId, 'New Feedback Received', `You received new feedback from ${feedback.authorName}.`, 'feedback_received', docRef.id);
+    return docRef.id;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, 'feedback');
   }
 };

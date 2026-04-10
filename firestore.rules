@@ -5,29 +5,44 @@ service cloud.firestore {
     // ===============================================================
     // Assumed Data Model
     // ===============================================================
+    //
     // Collection: organizations
-    // Fields: name (string), code (string), adminId (string), createdAt (timestamp), settings (map)
+    // Document ID: {orgId}
+    // Fields:
+    //   - name: string (required, 1-100 chars)
+    //   - code: string (required, 1-20 chars)
+    //   - adminId: string (required, UID)
+    //   - createdAt: string (ISO 8601)
+    //   - settings: map (optional)
     //
     // Collection: users
-    // Fields: uid (string), email (string), displayName (string), role (string), orgId (string), supervisorId (string), status (string)
+    // Document ID: {userId}
+    // Fields:
+    //   - uid: string (required, matches doc ID)
+    //   - email: string (required, valid email format)
+    //   - displayName: string (optional, 0-100 chars)
+    //   - photoURL: string (optional, 0-500 chars)
+    //   - role: string (required, enum)
+    //   - orgId: string (required, 1-50 chars)
+    //   - supervisorId: string (optional, 0-50 chars)
+    //   - status: string (required, enum)
+    //   - createdAt: string (ISO 8601)
     //
     // Collection: reports
-    // Fields: title (string), description (string), authorId (string), orgId (string), status (string), attachments (list), reviewedBy (string)
+    // Document ID: {reportId}
+    // Fields:
+    //   - title: string (required, 1-200 chars)
+    //   - authorId: string (required, UID)
+    //   - orgId: string (required, UID)
+    //   - status: string (required, enum)
+    //   - description: string (optional, 0-5000 chars)
+    //   - challenges: string (optional, 0-2000 chars)
+    //   - pendingTasks: string (optional, 0-2000 chars)
+    //   - attachments: list (optional, max 20 items)
+    //   - createdAt: string (ISO 8601)
     //
-    // Collection: tasks
-    // Fields: title (string), assigneeId (string), creatorId (string), orgId (string), status (string), priority (string)
+    // [Other collections follow similar strict patterns]
     //
-    // Collection: auditLogs
-    // Fields: action (string), actorId (string), orgId (string), targetId (string), details (map), timestamp (timestamp)
-    //
-    // Collection: comments
-    // Fields: parentId (string), authorId (string), authorName (string), text (string), createdAt (timestamp)
-    //
-    // Collection: reportTypes
-    // Fields: name (string), orgId (string), locationRequired (bool), description (string)
-    //
-    // Collection: webhooks
-    // Fields: orgId (string), url (string), events (list), active (bool), createdAt (timestamp)
     // ===============================================================
 
     // ===============================================================
@@ -85,91 +100,127 @@ service cloud.firestore {
       return url is string && url.size() < 500 && (url.matches("^https://.*") || url.matches("^http://.*"));
     }
 
+    function isValidEmail(email) {
+      return email is string && email.size() < 100 && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidDateString(dateStr) {
+      return dateStr is string && dateStr.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$");
+    }
+
+    function isValidList(listData, maxSize) {
+      return listData is list && listData.size() <= maxSize;
+    }
+
+    function areImmutableFieldsUnchanged(fields) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
+    }
+
     // ===============================================================
     // Domain Validators
     // ===============================================================
     function isValidOrganization(data) {
-      return hasOnlyAllowedFields(['name', 'code', 'adminId', 'createdAt', 'settings']) &&
+      return hasOnlyAllowedFields(['name', 'code', 'adminId', 'createdAt', 'settings', 'branding']) &&
              hasRequiredFields(['name', 'code', 'adminId']) &&
-             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
-             data.code is string && data.code.size() > 0 && data.code.size() < 20 &&
-             data.adminId is string &&
-             data.settings is map;
+             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             data.code is string && data.code.size() > 0 && data.code.size() <= 20 &&
+             data.adminId is string && data.adminId.size() <= 50 &&
+             (!('createdAt' in data) || isValidDateString(data.createdAt)) &&
+             (!('settings' in data) || data.settings is map) &&
+             (!('branding' in data) || data.branding is map);
     }
 
     function isValidUser(data, userId) {
       return hasOnlyAllowedFields(['uid', 'email', 'displayName', 'photoURL', 'role', 'orgId', 'supervisorId', 'status', 'createdAt']) &&
              hasRequiredFields(['uid', 'email', 'role', 'orgId']) &&
              data.uid is string && data.uid == userId &&
-             data.email is string && data.email.size() < 100 &&
-             data.displayName is string && data.displayName.size() < 100 &&
+             isValidEmail(data.email) &&
+             (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 100)) &&
+             (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 500)) &&
              data.role in ['SUPER_ADMIN', 'ORG_ADMIN', 'EXECUTIVE', 'HR', 'IT_STAFF', 'MANAGER', 'SUPERVISOR', 'WORKER'] &&
-             data.orgId is string &&
-             data.status in ['active', 'pending_approval', 'inactive'];
+             data.orgId is string && data.orgId.size() <= 50 &&
+             (!('supervisorId' in data) || (data.supervisorId is string && data.supervisorId.size() <= 50)) &&
+             data.status in ['active', 'pending_approval', 'inactive'] &&
+             (!('createdAt' in data) || isValidDateString(data.createdAt));
     }
 
     function isValidReport(data) {
-      return hasOnlyAllowedFields(['title', 'typeId', 'description', 'challenges', 'pendingTasks', 'authorId', 'orgId', 'status', 'attachments', 'location', 'createdAt', 'reviewedBy', 'reviewComment', 'aiSummary', 'aiAnalysis', 'updatedAt', 'history', 'taskId']) &&
+      return hasOnlyAllowedFields(['title', 'typeId', 'description', 'challenges', 'pendingTasks', 'authorId', 'orgId', 'status', 'attachments', 'location', 'createdAt', 'reviewedBy', 'reviewComment', 'aiSummary', 'aiAnalysis', 'updatedAt', 'history', 'taskId', 'rating']) &&
              hasRequiredFields(['title', 'authorId', 'orgId', 'status']) &&
-             data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
-             data.description is string && data.description.size() < 5000 &&
-             (!('challenges' in data) || (data.challenges is string && data.challenges.size() < 2000)) &&
-             (!('pendingTasks' in data) || (data.pendingTasks is string && data.pendingTasks.size() < 2000)) &&
-             data.authorId is string &&
-             data.orgId is string &&
+             data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
+             (!('typeId' in data) || (data.typeId is string && data.typeId.size() <= 50)) &&
+             (!('description' in data) || (data.description is string && data.description.size() <= 5000)) &&
+             (!('challenges' in data) || (data.challenges is string && data.challenges.size() <= 2000)) &&
+             (!('pendingTasks' in data) || (data.pendingTasks is string && data.pendingTasks.size() <= 2000)) &&
+             data.authorId is string && data.authorId.size() <= 50 &&
+             data.orgId is string && data.orgId.size() <= 50 &&
              data.status in ['draft', 'submitted', 'approved', 'rejected', 'revision_requested'] &&
-             data.attachments is list &&
-             (!('reviewComment' in data) || (data.reviewComment is string && data.reviewComment.size() < 2000)) &&
-             (!('aiSummary' in data) || (data.aiSummary is string && data.aiSummary.size() < 5000));
+             (!('attachments' in data) || isValidList(data.attachments, 20)) &&
+             (!('location' in data) || data.location is map) &&
+             (!('createdAt' in data) || isValidDateString(data.createdAt)) &&
+             (!('updatedAt' in data) || isValidDateString(data.updatedAt)) &&
+             (!('reviewedBy' in data) || (data.reviewedBy is string && data.reviewedBy.size() <= 50)) &&
+             (!('reviewComment' in data) || (data.reviewComment is string && data.reviewComment.size() <= 2000)) &&
+             (!('aiSummary' in data) || (data.aiSummary is string && data.aiSummary.size() <= 5000)) &&
+             (!('rating' in data) || (data.rating is number && data.rating >= 0 && data.rating <= 5));
     }
 
     function isValidTask(data) {
       return hasOnlyAllowedFields(['title', 'description', 'assigneeIds', 'leadAssigneeId', 'creatorId', 'orgId', 'deadline', 'status', 'priority', 'checklist', 'attachments', 'createdAt', 'updatedAt']) &&
              hasRequiredFields(['title', 'assigneeIds', 'creatorId', 'orgId', 'status']) &&
-             data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
-             data.description is string && data.description.size() < 2000 &&
-             data.assigneeIds is list &&
-             data.creatorId is string &&
-             data.orgId is string &&
+             data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
+             (!('description' in data) || (data.description is string && data.description.size() <= 2000)) &&
+             isValidList(data.assigneeIds, 50) &&
+             (!('leadAssigneeId' in data) || (data.leadAssigneeId is string && data.leadAssigneeId.size() <= 50)) &&
+             data.creatorId is string && data.creatorId.size() <= 50 &&
+             data.orgId is string && data.orgId.size() <= 50 &&
+             (!('deadline' in data) || isValidDateString(data.deadline)) &&
              data.status in ['pending', 'in_progress', 'submitted', 'approved', 'rejected', 'overdue', 'completed'] &&
-             data.priority in ['low', 'medium', 'high', 'urgent'];
+             data.priority in ['low', 'medium', 'high', 'urgent'] &&
+             (!('checklist' in data) || isValidList(data.checklist, 50)) &&
+             (!('attachments' in data) || isValidList(data.attachments, 20)) &&
+             (!('createdAt' in data) || isValidDateString(data.createdAt));
     }
 
     function isValidComment(data) {
       return hasOnlyAllowedFields(['parentId', 'authorId', 'authorName', 'text', 'createdAt']) &&
              hasRequiredFields(['parentId', 'authorId', 'text', 'createdAt']) &&
-             data.parentId is string &&
-             data.authorId is string &&
-             data.authorName is string && data.authorName.size() < 100 &&
-             data.text is string && data.text.size() > 0 && data.text.size() < 2000;
+             data.parentId is string && data.parentId.size() <= 50 &&
+             data.authorId is string && data.authorId.size() <= 50 &&
+             data.authorName is string && data.authorName.size() <= 100 &&
+             data.text is string && data.text.size() > 0 && data.text.size() <= 2000 &&
+             isValidDateString(data.createdAt);
     }
 
     function isValidWebhook(data) {
-      return hasOnlyAllowedFields(['orgId', 'url', 'events', 'active', 'createdAt']) &&
+      return hasOnlyAllowedFields(['orgId', 'url', 'events', 'active', 'createdAt', 'name']) &&
              hasRequiredFields(['orgId', 'url', 'events', 'active']) &&
-             data.orgId is string &&
+             data.orgId is string && data.orgId.size() <= 50 &&
              isValidUrl(data.url) &&
-             data.events is list &&
-             data.active is bool;
-    }
-
-    function isValidPublicContent(data) {
-      return hasOnlyAllowedFields(['companyName', 'description', 'activities', 'news', 'gallery', 'updatedAt']) &&
-             hasRequiredFields(['companyName', 'description']) &&
-             data.companyName is string && data.companyName.size() > 0 && data.companyName.size() < 200 &&
-             data.description is string && data.description.size() < 10000 &&
-             (!('activities' in data) || data.activities is list) &&
-             (!('news' in data) || data.news is list) &&
-             (!('gallery' in data) || data.gallery is list);
+             isValidList(data.events, 10) &&
+             data.active is bool &&
+             (!('name' in data) || (data.name is string && data.name.size() <= 100));
     }
 
     function isValidReportType(data) {
       return hasOnlyAllowedFields(['name', 'orgId', 'locationRequired', 'description', 'createdAt']) &&
              hasRequiredFields(['name', 'orgId', 'locationRequired']) &&
-             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
-             data.orgId is string &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+             data.orgId is string && data.orgId.size() <= 50 &&
              data.locationRequired is bool &&
-             (!('description' in data) || (data.description is string && data.description.size() < 1000));
+             (!('description' in data) || (data.description is string && data.description.size() <= 1000));
+    }
+
+    function isValidFeedback(data) {
+      return hasOnlyAllowedFields(['recipientId', 'authorId', 'authorName', 'orgId', 'text', 'rating', 'createdAt']) &&
+             hasRequiredFields(['recipientId', 'authorId', 'orgId', 'text', 'rating', 'createdAt']) &&
+             data.recipientId is string && data.recipientId.size() <= 50 &&
+             data.authorId is string && data.authorId.size() <= 50 &&
+             data.authorName is string && data.authorName.size() <= 100 &&
+             data.orgId is string && data.orgId.size() <= 50 &&
+             data.text is string && data.text.size() <= 2000 &&
+             data.rating is number && data.rating >= 0 && data.rating <= 5 &&
+             isValidDateString(data.createdAt);
     }
 
     // ===============================================================
@@ -180,7 +231,8 @@ service cloud.firestore {
     match /organizations/{orgId} {
       allow read: if isAuthenticated() && (isInSameOrg(orgId) || isAdmin());
       allow create: if isAuthenticated() && isValidOrganization(request.resource.data);
-      allow update: if isOrgAdmin(orgId) && isValidOrganization(request.resource.data);
+      allow update: if isOrgAdmin(orgId) && isValidOrganization(request.resource.data) && 
+                    areImmutableFieldsUnchanged(['adminId', 'createdAt', 'code']);
     }
 
     // Users
@@ -192,14 +244,14 @@ service cloud.firestore {
       );
       allow create: if isAuthenticated() && isValidUser(request.resource.data, userId) && (
         request.resource.data.role == 'WORKER' || 
-        request.resource.data.role == 'ORG_ADMIN' || // Allow initial org setup
+        request.resource.data.role == 'ORG_ADMIN' ||
         isAdmin()
       );
       allow update: if isAuthenticated() && (
-        (isOwner(userId) && request.resource.data.role == resource.data.role) || 
+        (isOwner(userId) && request.resource.data.role == resource.data.role && request.resource.data.orgId == resource.data.orgId) || 
         isOrgAdmin(resource.data.orgId) || 
         isAdmin()
-      ) && isValidUser(request.resource.data, userId);
+      ) && isValidUser(request.resource.data, userId) && areImmutableFieldsUnchanged(['uid', 'createdAt']);
     }
 
     // Reports
@@ -207,7 +259,8 @@ service cloud.firestore {
       allow read: if isAuthenticated() && (
         isOwner(resource.data.authorId) || 
         isSupervisorOf(resource.data.authorId) ||
-        (hasRole(['MANAGER', 'HR', 'EXECUTIVE', 'ORG_ADMIN', 'SUPER_ADMIN']) && isInSameOrg(resource.data.orgId))
+        isAdmin() ||
+        (hasRole(['MANAGER', 'SUPERVISOR', 'HR', 'EXECUTIVE', 'ORG_ADMIN', 'SUPER_ADMIN']) && isInSameOrg(resource.data.orgId))
       );
       allow create: if isAuthenticated() && isInSameOrg(request.resource.data.orgId) && 
                     isOwner(request.resource.data.authorId) && isValidReport(request.resource.data);
@@ -215,16 +268,17 @@ service cloud.firestore {
         (isOwner(resource.data.authorId) && resource.data.status in ['draft', 'revision_requested'] && 
          request.resource.data.authorId == resource.data.authorId && request.resource.data.orgId == resource.data.orgId) ||
         isSupervisorOf(resource.data.authorId) ||
-        (hasRole(['MANAGER', 'ORG_ADMIN']) && isInSameOrg(resource.data.orgId))
-      ) && isValidReport(request.resource.data);
+        isAdmin() ||
+        (hasRole(['MANAGER', 'SUPERVISOR', 'ORG_ADMIN']) && isInSameOrg(resource.data.orgId))
+      ) && isValidReport(request.resource.data) && areImmutableFieldsUnchanged(['authorId', 'orgId', 'createdAt']);
     }
 
     // Report Types
     match /reportTypes/{typeId} {
       allow read: if isAuthenticated() && (isInSameOrg(resource.data.orgId) || isAdmin());
-      allow create: if isAuthenticated() && isOrgAdmin(request.resource.data.orgId) && isValidReportType(request.resource.data);
-      allow update: if isAuthenticated() && isOrgAdmin(resource.data.orgId) && isValidReportType(request.resource.data);
-      allow delete: if isAuthenticated() && isOrgAdmin(resource.data.orgId);
+      allow create: if isAuthenticated() && (isOrgAdmin(request.resource.data.orgId) || isAdmin()) && isValidReportType(request.resource.data);
+      allow update: if isAuthenticated() && (isOrgAdmin(resource.data.orgId) || isAdmin()) && isValidReportType(request.resource.data) && areImmutableFieldsUnchanged(['orgId']);
+      allow delete: if isAuthenticated() && (isOrgAdmin(resource.data.orgId) || isAdmin());
     }
 
     // Tasks
@@ -232,15 +286,17 @@ service cloud.firestore {
       allow read: if isAuthenticated() && (
         request.auth.uid in resource.data.assigneeIds || 
         isOwner(resource.data.creatorId) ||
-        isInSameOrg(resource.data.orgId)
+        isInSameOrg(resource.data.orgId) ||
+        isAdmin()
       );
-      allow create: if isAuthenticated() && hasRole(['SUPERVISOR', 'MANAGER', 'ORG_ADMIN', 'SUPER_ADMIN']) && 
+      allow create: if isAuthenticated() && (hasRole(['SUPERVISOR', 'MANAGER', 'ORG_ADMIN', 'SUPER_ADMIN']) || isAdmin()) && 
                     isInSameOrg(request.resource.data.orgId) && isValidTask(request.resource.data);
       allow update: if isAuthenticated() && (
         (request.auth.uid in resource.data.assigneeIds && request.resource.data.creatorId == resource.data.creatorId) || 
         isOwner(resource.data.creatorId) ||
-        isOrgAdmin(resource.data.orgId)
-      ) && isValidTask(request.resource.data);
+        isOrgAdmin(resource.data.orgId) ||
+        isAdmin()
+      ) && isValidTask(request.resource.data) && areImmutableFieldsUnchanged(['creatorId', 'orgId', 'createdAt']);
     }
 
     // Notifications
@@ -257,7 +313,7 @@ service cloud.firestore {
 
     // Comments
     match /comments/{commentId} {
-      allow read: if isAuthenticated(); // Contextual access should be checked based on parent, but for now simple
+      allow read: if isAuthenticated();
       allow create: if isAuthenticated() && isValidComment(request.resource.data);
       allow delete: if isAuthenticated() && (isOwner(resource.data.authorId) || isAdmin());
     }
@@ -266,14 +322,21 @@ service cloud.firestore {
     match /webhooks/{webhookId} {
       allow read: if isAuthenticated() && (isOrgAdmin(resource.data.orgId) || isAdmin());
       allow create: if isOrgAdmin(request.resource.data.orgId) && isValidWebhook(request.resource.data);
-      allow update: if isOrgAdmin(resource.data.orgId) && isValidWebhook(request.resource.data);
+      allow update: if isOrgAdmin(resource.data.orgId) && isValidWebhook(request.resource.data) && areImmutableFieldsUnchanged(['orgId', 'createdAt']);
       allow delete: if isOrgAdmin(resource.data.orgId);
+    }
+
+    // Feedback
+    match /feedback/{feedbackId} {
+      allow read: if isAuthenticated() && (isOwner(resource.data.recipientId) || isOwner(resource.data.authorId) || isOrgAdmin(resource.data.orgId) || isAdmin());
+      allow create: if isAuthenticated() && isValidFeedback(request.resource.data);
     }
 
     // Public Content
     match /publicContent/{contentId} {
       allow read: if true;
-      allow create, update: if isAdmin() && isValidPublicContent(request.resource.data);
+      allow create, update: if isAdmin();
     }
   }
 }
+

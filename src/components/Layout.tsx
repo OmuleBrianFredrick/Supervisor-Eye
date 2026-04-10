@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { 
   LayoutDashboard, 
   FileText, 
@@ -16,12 +17,14 @@ import {
   Plus,
   Sun,
   Moon,
-  Sparkles
+  Sparkles,
+  TrendingUp
 } from 'lucide-react';
 import { auth } from '../firebase';
 import { signOut } from 'firebase/auth';
 import { UserProfile } from '../types';
-import { getUserProfile, checkUpcomingDeadlines } from '../services/firebaseService';
+import { getUserProfile, checkUpcomingDeadlines, getOrganizationById } from '../services/firebaseService';
+import { Organization } from '../types';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { useTheme } from '../contexts/ThemeContext';
@@ -37,10 +40,12 @@ interface LayoutProps {
 
 export default function Layout({ children }: LayoutProps) {
   const [user, setUser] = useState<UserProfile | null>(null);
+  const [org, setOrg] = useState<Organization | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const { theme, toggleTheme } = useTheme();
   const location = useLocation();
   const navigate = useNavigate();
+  const { t } = useTranslation();
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(async (authUser) => {
@@ -48,6 +53,10 @@ export default function Layout({ children }: LayoutProps) {
         const profile = await getUserProfile(authUser.uid);
         setUser(profile);
         if (profile) {
+          // Fetch Organization for branding
+          const orgData = await getOrganizationById(profile.orgId);
+          setOrg(orgData);
+
           // Check for upcoming deadlines
           checkUpcomingDeadlines(profile.orgId, profile.uid);
         }
@@ -67,17 +76,33 @@ export default function Layout({ children }: LayoutProps) {
   };
 
   const menuItems = [
-    { name: 'Dashboard', icon: LayoutDashboard, path: '/', roles: ['WORKER', 'SUPERVISOR', 'MANAGER', 'HR', 'IT_STAFF', 'EXECUTIVE', 'ORG_ADMIN', 'SUPER_ADMIN'] },
-    { name: 'Reports', icon: FileText, path: '/reports', roles: ['WORKER', 'SUPERVISOR', 'MANAGER', 'HR', 'EXECUTIVE', 'ORG_ADMIN', 'SUPER_ADMIN'] },
-    { name: 'Tasks', icon: CheckSquare, path: '/tasks', roles: ['WORKER', 'SUPERVISOR', 'MANAGER', 'ORG_ADMIN', 'SUPER_ADMIN'] },
-    { name: 'Team', icon: Users, path: '/team', roles: ['SUPERVISOR', 'MANAGER', 'HR', 'ORG_ADMIN', 'SUPER_ADMIN'] },
-    { name: 'Analytics', icon: BarChart3, path: '/analytics', roles: ['MANAGER', 'HR', 'EXECUTIVE', 'ORG_ADMIN', 'SUPER_ADMIN'] },
+    { name: t('Dashboard'), icon: LayoutDashboard, path: '/dashboard', roles: ['WORKER', 'SUPERVISOR', 'MANAGER', 'HR', 'IT_STAFF', 'EXECUTIVE', 'ORG_ADMIN', 'SUPER_ADMIN'] },
+    { name: t('Reports'), icon: FileText, path: '/reports', roles: ['WORKER', 'SUPERVISOR', 'MANAGER', 'HR', 'EXECUTIVE', 'ORG_ADMIN', 'SUPER_ADMIN'] },
+    { name: t('Tasks'), icon: CheckSquare, path: '/tasks', roles: ['WORKER', 'SUPERVISOR', 'MANAGER', 'ORG_ADMIN', 'SUPER_ADMIN'] },
+    { name: t('Performance'), icon: TrendingUp, path: '/performance', roles: ['SUPERVISOR', 'MANAGER', 'HR', 'EXECUTIVE', 'ORG_ADMIN', 'SUPER_ADMIN'] },
+    { name: t('Team'), icon: Users, path: '/team', roles: ['SUPERVISOR', 'MANAGER', 'HR', 'ORG_ADMIN', 'SUPER_ADMIN'] },
+    { name: t('Analytics'), icon: BarChart3, path: '/analytics', roles: ['MANAGER', 'HR', 'EXECUTIVE', 'ORG_ADMIN', 'SUPER_ADMIN'] },
     { name: 'AI Creative', icon: Sparkles, path: '/ai-tools', roles: ['WORKER', 'SUPERVISOR', 'MANAGER', 'HR', 'IT_STAFF', 'EXECUTIVE', 'ORG_ADMIN', 'SUPER_ADMIN'] },
-    { name: 'Admin', icon: ShieldCheck, path: '/admin', roles: ['ORG_ADMIN', 'SUPER_ADMIN'] },
-    { name: 'Settings', icon: Settings, path: '/settings', roles: ['WORKER', 'SUPERVISOR', 'MANAGER', 'HR', 'IT_STAFF', 'EXECUTIVE', 'ORG_ADMIN', 'SUPER_ADMIN'] },
+    { name: t('Admin'), icon: ShieldCheck, path: '/admin', roles: ['ORG_ADMIN', 'SUPER_ADMIN'] },
+    { name: t('Settings'), icon: Settings, path: '/settings', roles: ['WORKER', 'SUPERVISOR', 'MANAGER', 'HR', 'IT_STAFF', 'EXECUTIVE', 'ORG_ADMIN', 'SUPER_ADMIN'] },
   ];
 
   const filteredMenu = menuItems.filter(item => user && item.roles.includes(user.role));
+
+  // Apply dynamic branding
+  useEffect(() => {
+    if (org?.branding?.primaryColor) {
+      const color = org.branding.primaryColor;
+      document.documentElement.style.setProperty('--primary-600', color);
+      document.documentElement.style.setProperty('--primary-500', color);
+      document.documentElement.style.setProperty('--primary-700', color);
+      // We can also set a generic primary color variable if we want to use it in Tailwind
+    } else {
+      document.documentElement.style.removeProperty('--primary-600');
+      document.documentElement.style.removeProperty('--primary-500');
+      document.documentElement.style.removeProperty('--primary-700');
+    }
+  }, [org?.branding?.primaryColor]);
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex transition-colors duration-300">
@@ -97,10 +122,18 @@ export default function Layout({ children }: LayoutProps) {
         <div className="h-full flex flex-col">
           <div className="p-6 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center">
-                <ShieldCheck className="w-6 h-6 text-white" />
-              </div>
-              <span className="text-xl font-bold tracking-tight">Supervisor Eye</span>
+              {org?.branding?.logoUrl ? (
+                <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center overflow-hidden p-1">
+                  <img src={org.branding.logoUrl} alt="Logo" className="w-full h-full object-contain" />
+                </div>
+              ) : (
+                <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center">
+                  <ShieldCheck className="w-6 h-6 text-white" />
+                </div>
+              )}
+              <span className="text-xl font-bold tracking-tight truncate max-w-[140px]">
+                {org?.name || 'Supervisor Eye'}
+              </span>
             </div>
             <button 
               onClick={() => setIsSidebarOpen(false)}

@@ -43,7 +43,33 @@ async function startServer() {
   app.use(cors());
   app.use(express.json());
 
-  // Multer for local storage support (optional)
+  // Simple in-memory cache (replace with Redis in production)
+  const cache = new Map<string, { data: any; expiry: number }>();
+
+  const getCachedData = (key: string) => {
+    const cached = cache.get(key);
+    if (cached && cached.expiry > Date.now()) {
+      return cached.data;
+    }
+    cache.delete(key);
+    return null;
+  };
+
+  const setCachedData = (key: string, data: any, ttlSeconds = 60) => {
+    cache.set(key, { data, expiry: Date.now() + ttlSeconds * 1000 });
+  };
+
+  // API routes FIRST
+  app.get("/api/health", (req, res) => {
+    const cachedStatus = getCachedData('health_status');
+    if (cachedStatus) {
+      return res.json({ status: "ok", cached: true, ...cachedStatus });
+    }
+    
+    const status = { timestamp: new Date().toISOString() };
+    setCachedData('health_status', status, 10); // Cache for 10 seconds
+    res.json({ status: "ok", cached: false, ...status });
+  });
   const storage = multer.diskStorage({
     destination: (req, file, cb) => {
       cb(null, 'uploads/');
@@ -55,10 +81,6 @@ async function startServer() {
   const upload = multer({ storage });
 
   // API Routes
-  app.get("/api/health", (req, res) => {
-    res.json({ status: "ok", timestamp: new Date().toISOString() });
-  });
-
   // Audit Log Endpoint
   app.post("/api/audit", async (req, res) => {
     const { action, actorId, orgId, details } = req.body;
