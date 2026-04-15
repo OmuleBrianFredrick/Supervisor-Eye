@@ -45,6 +45,7 @@ export interface Report {
     address?: string;
   };
   createdAt: string;
+  updatedAt?: string;
   reviewedBy?: string;
   reviewComment?: string;
   reviewedAt?: string;
@@ -100,6 +101,7 @@ export interface Task {
   checklist?: TaskChecklistItem[];
   attachments?: Attachment[];
   createdAt: string;
+  updatedAt?: string;
 }
 
 export interface TaskChecklistItem {

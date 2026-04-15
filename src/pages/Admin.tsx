@@ -39,7 +39,7 @@ export default function Admin() {
   // Form State
   const [orgName, setOrgName] = useState('');
   const [gpsEnabled, setGpsEnabled] = useState(true);
-  const [localStorage, setLocalStorage] = useState(false);
+  const [localStorageEnabled, setLocalStorageEnabled] = useState(false);
   const [activeTab, setActiveTab] = useState<'general' | 'webhooks' | 'security' | 'storage' | 'public'>('general');
 
   // Webhooks State
@@ -73,7 +73,7 @@ export default function Admin() {
             setOrg(orgData);
             setOrgName(orgData.name);
             setGpsEnabled(orgData.settings.gpsEnabled);
-            setLocalStorage(orgData.settings.localStorage);
+            setLocalStorageEnabled(orgData.settings.localStorage);
             
             // Fetch webhooks
             const webhooksSnap = await getDocs(query(collection(db, 'webhooks'), where('orgId', '==', profile.orgId)));
@@ -133,10 +133,10 @@ export default function Admin() {
         name: orgName,
         settings: {
           gpsEnabled,
-          localStorage
+          localStorage: localStorageEnabled
         }
       });
-      await logAudit('org:settings_updated', org.id, org.id, { orgName, gpsEnabled, localStorage });
+      await logAudit('org:settings_updated', org.id, org.id, { orgName, gpsEnabled, localStorage: localStorageEnabled });
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (error) {
@@ -364,15 +364,15 @@ export default function Admin() {
                       <p className="text-xs text-slate-500 dark:text-slate-400">Store evidence files on organization's local server instead of cloud.</p>
                     </div>
                     <button 
-                      onClick={() => setLocalStorage(!localStorage)}
+                      onClick={() => setLocalStorageEnabled(!localStorageEnabled)}
                       className={cn(
                         "w-12 h-6 rounded-full transition-all relative",
-                        localStorage ? "bg-indigo-600" : "bg-slate-200 dark:bg-slate-700"
+                        localStorageEnabled ? "bg-indigo-600" : "bg-slate-200 dark:bg-slate-700"
                       )}
                     >
                       <div className={cn(
                         "w-4 h-4 bg-white rounded-full absolute top-1 transition-all",
-                        localStorage ? "right-1" : "left-1"
+                        localStorageEnabled ? "right-1" : "left-1"
                       )} />
                     </button>
                   </div>

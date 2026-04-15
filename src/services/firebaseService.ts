@@ -12,8 +12,7 @@ import {
   deleteDoc,
   orderBy,
   limit,
-  Timestamp,
-  serverTimestamp
+  Timestamp
 } from 'firebase/firestore';
 import { 
   sendPasswordResetEmail, 
@@ -187,11 +186,14 @@ export const submitReport = async (report: Omit<Report, 'id'>) => {
 };
 
 export const subscribeToReports = (orgId: string, callback: (reports: Report[]) => void, filters?: any) => {
-  let q = query(collection(db, 'reports'), where('orgId', '==', orgId), orderBy('createdAt', 'desc'));
+  let constraints: any[] = [where('orgId', '==', orgId)];
   
   if (filters?.authorId) {
-    q = query(q, where('authorId', '==', filters.authorId));
+    constraints.push(where('authorId', '==', filters.authorId));
   }
+  
+  constraints.push(orderBy('createdAt', 'desc'));
+  const q = query(collection(db, 'reports'), ...constraints);
   
   return onSnapshot(q, (snapshot) => {
     const reports = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Report));
@@ -234,11 +236,14 @@ export const createTask = async (task: Omit<Task, 'id' | 'createdAt'>) => {
 };
 
 export const subscribeToTasks = (orgId: string, callback: (tasks: Task[]) => void, filters?: any) => {
-  let q = query(collection(db, 'tasks'), where('orgId', '==', orgId), orderBy('createdAt', 'desc'));
+  let constraints: any[] = [where('orgId', '==', orgId)];
   
   if (filters?.assigneeId) {
-    q = query(q, where('assigneeIds', 'array-contains', filters.assigneeId));
+    constraints.push(where('assigneeIds', 'array-contains', filters.assigneeId));
   }
+  
+  constraints.push(orderBy('createdAt', 'desc'));
+  const q = query(collection(db, 'tasks'), ...constraints);
   
   return onSnapshot(q, (snapshot) => {
     const tasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Task));
@@ -315,7 +320,7 @@ export const updateReportAI = async (reportId: string, aiSummary: string, aiAnal
     await updateDoc(reportRef, {
       aiSummary,
       aiAnalysis,
-      updatedAt: serverTimestamp()
+      updatedAt: new Date().toISOString()
     });
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, `reports/${reportId}`);

@@ -46,6 +46,7 @@ import { calculateHash } from '../utils/crypto';
 import { summarizeReport, analyzeReport, analyzeImage, textToSpeech } from '../services/aiService';
 import CommentSection from '../components/CommentSection';
 import { doc, updateDoc, query, collection, where, onSnapshot } from 'firebase/firestore';
+import { useNavigate } from 'react-router-dom';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { useTranslation } from 'react-i18next';
@@ -55,6 +56,7 @@ function cn(...inputs: ClassValue[]) {
 }
 
 export default function Reports() {
+  const navigate = useNavigate();
   const { t } = useTranslation();
   const [user, setUser] = useState<UserProfile | null>(null);
   const [reports, setReports] = useState<Report[]>([]);
@@ -99,7 +101,7 @@ export default function Reports() {
       const { GoogleGenAI } = await import('@google/genai');
       const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
       const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
+        model: "gemini-2.0-flash",
         contents: prompt,
         config: {
           responseMimeType: "application/json"
@@ -1177,7 +1179,7 @@ export default function Reports() {
                         const searchParams = new URLSearchParams();
                         searchParams.set('title', `Action from: ${selectedReport.title}`);
                         searchParams.set('description', `Based on report insights: ${selectedReport.aiSummary || selectedReport.description}`);
-                        window.location.href = `/tasks?${searchParams.toString()}`;
+                        navigate(`/tasks?${searchParams.toString()}`);
                       }}
                       className="w-full flex items-center justify-center gap-2 py-4 bg-slate-900 dark:bg-white text-white dark:text-slate-900 rounded-2xl font-bold hover:bg-slate-800 dark:hover:bg-slate-100 transition-all shadow-xl"
                     >
