@@ -670,3 +670,50 @@ export const createFeedback = async (feedback: Omit<Feedback, 'id' | 'createdAt'
     handleFirestoreError(error, OperationType.CREATE, 'feedback');
   }
 };
+
+// --- Inquiries (CRM) ---
+
+export const submitInquiry = async (inquiryData: { name: string; email: string; subject: string; message: string }) => {
+  try {
+    const docRef = await addDoc(collection(db, 'inquiries'), {
+      ...inquiryData,
+      status: 'new',
+      createdAt: new Date().toISOString()
+    });
+    
+    // Call backend to send email notification
+    try {
+      await fetch('/api/email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...inquiryData, id: docRef.id })
+      });
+    } catch (emailError) {
+      console.warn("Failed to send email notification, but inquiry was saved.", emailError);
+    }
+    
+    return docRef.id;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.CREATE, 'inquiries');
+  }
+};
+
+export const getInquiries = async () => {
+  try {
+    const q = query(collection(db, 'inquiries'), orderBy('createdAt', 'desc'));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.LIST, 'inquiries');
+    return [];
+  }
+};
+
+export const updateInquiryStatus = async (id: string, status: 'new' | 'read' | 'resolved') => {
+  try {
+    await updateDoc(doc(db, 'inquiries', id), { status });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, `inquiries/${id}`);
+  }
+};
+

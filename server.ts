@@ -124,6 +124,51 @@ async function startServer() {
   // Serve uploads statically
   app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
+  app.post("/api/email", async (req, res) => {
+    const { name, email, subject, message } = req.body;
+    
+    // Import dynamically to avoid top-level issues if not installed
+    try {
+      const nodemailer = (await import('nodemailer')).default;
+      
+      const transporter = nodemailer.createTransport({
+        host: process.env.SMTP_HOST || 'smtp.gmail.com',
+        port: parseInt(process.env.SMTP_PORT || '587'),
+        secure: process.env.SMTP_SECURE === 'true',
+        auth: {
+          user: process.env.SMTP_USER,
+          pass: process.env.SMTP_PASS,
+        },
+      });
+
+      const mailOptions = {
+        from: process.env.SMTP_USER || '"Supervisor Eye Contact Form" <noreply@supervisoreye.com>',
+        to: process.env.DEVELOPER_EMAIL || 'omulebrianfredrick@gmail.com',
+        subject: `New Inquiry: ${subject}`,
+        text: `You have received a new inquiry from the platform contact form.\n\nName: ${name}\nEmail: ${email}\n\nMessage:\n${message}`,
+        html: `<p>You have received a new inquiry from the platform contact form.</p><p><strong>Name:</strong> ${name}</p><p><strong>Email:</strong> ${email}</p><p><strong>Message:</strong></p><p>${message.replace(/\n/g, '<br>')}</p>`,
+      };
+
+      if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+        console.log("=============================");
+        console.log("Mock Email Sent (SMTP credentials not configured):");
+        console.log("To:", mailOptions.to);
+        console.log("From:", mailOptions.from);
+        console.log("Subject:", mailOptions.subject);
+        console.log("Message:", mailOptions.text);
+        console.log("=============================");
+      } else {
+        await transporter.sendMail(mailOptions);
+        console.log("Email notification sent successfully.");
+      }
+
+      res.status(200).json({ success: true, message: "Notification sent." });
+    } catch (error) {
+      console.error("Error sending email:", error);
+      res.status(500).json({ error: "Failed to send email notification." });
+    }
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

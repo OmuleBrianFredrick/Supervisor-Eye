@@ -1,3 +1,13 @@
+export interface Inquiry {
+  id?: string;
+  name: string;
+  email: string;
+  subject: string;
+  message: string;
+  status: 'new' | 'read' | 'resolved';
+  createdAt: string;
+}
+
 export type Role = 'SUPER_ADMIN' | 'ORG_ADMIN' | 'EXECUTIVE' | 'HR' | 'IT_STAFF' | 'MANAGER' | 'SUPERVISOR' | 'WORKER';
 
 export interface UserProfile {

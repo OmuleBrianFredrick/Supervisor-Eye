@@ -239,7 +239,7 @@ export default function Home() {
           <div className="flex items-center gap-6">
             <a href="#" className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">Privacy Policy</a>
             <a href="#" className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">Terms of Service</a>
-            <a href="#" className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">Contact</a>
+            <Link to="/contact" className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">Contact</Link>
           </div>
         </div>
       </footer>

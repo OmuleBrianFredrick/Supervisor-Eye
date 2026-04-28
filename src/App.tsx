@@ -14,6 +14,9 @@ import Performance from './pages/Performance';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import ForgotPassword from './pages/ForgotPassword';
+import Contact from './pages/Contact';
+import CRMLogin from './pages/CRMLogin';
+import CRMDashboard from './pages/CRMDashboard';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { AuthProvider } from './contexts/AuthContext';
 
@@ -27,6 +30,10 @@ export default function App() {
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/contact" element={<Contact />} />
+            
+            <Route path="/crm/login" element={<CRMLogin />} />
+            <Route path="/crm/dashboard" element={<CRMDashboard />} />
             
             <Route path="/dashboard" element={<Layout><Dashboard /></Layout>} />
             <Route path="/reports" element={<Layout><Reports /></Layout>} />
