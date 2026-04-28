@@ -44,7 +44,7 @@ export default function Contact() {
             <Mail className="h-6 w-6" />
           </div>
           <h2 className="mt-6 text-3xl font-extrabold text-slate-900 dark:text-white">
-            Contact the Developers
+            Contact Us
           </h2>
           <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
             Have a question, inquiry, or looking to partner with us? Reach out directly.

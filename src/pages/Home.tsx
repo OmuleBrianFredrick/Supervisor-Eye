@@ -30,6 +30,9 @@ export default function Home() {
               <span className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">Supervisor Eye</span>
             </div>
             <div className="flex items-center gap-4">
+              <Link to="/pricing" className="text-sm font-semibold text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors hidden sm:block">
+                Pricing
+              </Link>
               {isAuthenticated ? (
                 <Link to="/dashboard" className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 dark:shadow-none">
                   Go to Dashboard
@@ -239,6 +242,7 @@ export default function Home() {
           <div className="flex items-center gap-6">
             <a href="#" className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">Privacy Policy</a>
             <a href="#" className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">Terms of Service</a>
+            <Link to="/pricing" className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">Pricing</Link>
             <Link to="/contact" className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">Contact</Link>
           </div>
         </div>

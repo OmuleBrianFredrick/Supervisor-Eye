@@ -15,6 +15,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import ForgotPassword from './pages/ForgotPassword';
 import Contact from './pages/Contact';
+import Pricing from './pages/Pricing';
 import CRMLogin from './pages/CRMLogin';
 import CRMDashboard from './pages/CRMDashboard';
 import { ThemeProvider } from './contexts/ThemeContext';
@@ -31,6 +32,7 @@ export default function App() {
             <Route path="/register" element={<Register />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/contact" element={<Contact />} />
+            <Route path="/pricing" element={<Pricing />} />
             
             <Route path="/crm/login" element={<CRMLogin />} />
             <Route path="/crm/dashboard" element={<CRMDashboard />} />
